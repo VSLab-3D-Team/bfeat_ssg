@@ -19,9 +19,9 @@ class ContrastiveSingleLabelSampler():
         self.negative_index = { i: [] for i in range(27)}
         for p_i in range(27):
             for _, v in PREDICATE_CATEGORY.items():
-                if (p_i in v) and (p_i is not 0 or p_i is not 24): 
+                if (p_i in v) and ((not p_i == 0) or (not p_i == 24)): 
                     self.negative_index[p_i].extend([ x for x in v if not x == p_i ])
-                elif p_i is 0 or p_i is 24:
+                elif (p_i == 0) or (p_i == 24):
                     self.negative_index[p_i].extend(v)
                 else:
                     continue

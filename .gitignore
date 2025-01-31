@@ -1,3 +1,4 @@
 checkpoints
 model_checkpoints
 wandb
+__pycache__

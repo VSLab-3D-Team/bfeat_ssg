@@ -71,7 +71,7 @@ class BFeatVanillaTrainer():
         now = datetime.now()
         self.exp_name = f"{self.t_config.wandb_project}_{now.strftime('%Y-%m-%d_%H')}"
         self.__setup_checkpoint(self.exp_name)
-        wandb.init(project="BetterFeat", name=self.exp_name)
+        wandb.init(project="BetterFeat_3DSSG", name=self.exp_name)
     
     def __setup_checkpoint(self, exp_name):
         if not os.path.exists('checkpoints'):
