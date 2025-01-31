@@ -1,3 +1,4 @@
+from typing import List
 from dataset.dataloader import CustomDataLoader, collate_fn_bfeat
 from dataset import build_dataset
 from utils.eval_utils import *
@@ -81,7 +82,7 @@ class BFeatVanillaTrainer():
         if not os.path.exists('checkpoints/' + exp_name + '/' + 'models'):
             os.makedirs('checkpoints/' + exp_name + '/' + 'models')
     
-    def __to_device(self, *tensors):
+    def __to_device(self, *tensors) -> List[torch.Tensor]:
         c_tensor = [ t.to(self.device) for t in tensors ]
         return c_tensor
     
@@ -137,7 +138,7 @@ class BFeatVanillaTrainer():
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices, descriptor, batch_ids)
+                edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label)
                 c_rel_loss = F.binary_cross_entropy(rel_pred, gt_rel_label, weight=rel_weight)
@@ -161,9 +162,9 @@ class BFeatVanillaTrainer():
                     ("train/total_loss", t_loss.detach().item()),
                 ] + logs
                 t_log += [
-                    ("Misc/epo", int(self.model.epoch)),
+                    ("Misc/epo", int(e)),
                     ("Misc/it", int(idx)),
-                    ("lr", self.model.lr_scheduler.get_last_lr()[0])
+                    ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
                 progbar.add(1, values=logs)
             
@@ -229,7 +230,7 @@ class BFeatVanillaTrainer():
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices, descriptor, batch_ids)
+                _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 top_k_obj = evaluate_topk_object(obj_pred.detach().cpu(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach().cpu(), gt_edges, self.d_config.multi_rel, topk=6)
@@ -261,6 +262,7 @@ class BFeatVanillaTrainer():
                 ]
 
                 progbar.add(1, values=logs)
+            
             cls_matrix_list = np.stack(cls_matrix_list)
             sub_scores_list = np.stack(sub_scores_list)
             obj_scores_list = np.stack(obj_scores_list)

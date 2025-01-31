@@ -25,7 +25,7 @@ class ContrastiveSingleLabelSampler():
                     self.negative_index[p_i].extend(v)
                 else:
                     continue
-        print(self.negative_index)
+        # print(self.negative_index)
     
     def __read_cls(self):        
         self.obj_label_list = read_txt_to_list(self.obj_label_path)

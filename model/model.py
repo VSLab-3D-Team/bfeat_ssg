@@ -30,31 +30,31 @@ class BFeatVanillaNet(BaseNetwork):
             self.m_config.dim_obj_feats,
             self.m_config.dim_geo_feats,
             self.m_config.dim_edge_feats
-        )
+        ).to(self.device)
         
         self.gat = BFeatVanillaGAT(
             self.m_config.dim_obj_feats,
             self.m_config.dim_edge_feats,
             self.m_config.dim_attn,
-            num_heads=4,
+            num_heads=self.m_config.num_heads,
             depth=self.m_config.num_graph_update,
             DROP_OUT_ATTEN=self.t_config.drop_out
-        )
+        ).to(self.device)
         
-        self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats)
-        self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats)
+        self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
+        self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
         
         
     def forward(
         self, 
-        obj_pts, 
+        obj_pts: torch.Tensor, 
         edge_pts, # remaining for other processing domain
-        edge_indices, 
-        descriptor, 
+        edge_indices: torch.Tensor, 
+        descriptor: torch.Tensor, 
         batch_ids=None
     ):
         with torch.no_grad():
-            _obj_feats = self.point_encoder(obj_pts)
+            _obj_feats, _, _ = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach()
         
         x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)

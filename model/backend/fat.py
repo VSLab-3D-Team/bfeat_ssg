@@ -22,6 +22,38 @@ class TripletEdgeNet(torch.nn.Module):
         return self.nn(x_)
     
 
+class GraphEdgeAttenNetwork(torch.nn.Module):
+    def __init__(self, num_heads, dim_node, dim_edge, dim_atten, aggr= 'max', use_bn=False,
+                 flow='target_to_source',attention = 'fat',use_edge:bool=True, **kwargs):
+        super().__init__() #  "Max" aggregation.
+        self.name = 'edgeatten'
+        self.dim_node=dim_node
+        self.dim_edge=dim_edge
+        self.index_get = Gen_Index(flow=flow)
+        if attention == 'fat':        
+            self.index_aggr = Aggre_Index(aggr=aggr,flow=flow)
+        elif attention == 'distance':
+            aggr = 'add'
+            self.index_aggr = Aggre_Index(aggr=aggr,flow=flow)
+        else:
+            raise NotImplementedError()
+
+        self.edgeatten = MultiHeadedEdgeAttention(
+            dim_node=dim_node,dim_edge=dim_edge,dim_atten=dim_atten,
+            num_heads=num_heads,use_bn=use_bn,attention=attention,use_edge=use_edge, **kwargs)
+        self.prop = build_mlp([dim_node+dim_atten, dim_node+dim_atten, dim_node],
+                            do_bn= use_bn, on_last=False)
+
+    def forward(self, x, edge_feature, edge_index, weight=None, istrain=False):
+        assert x.ndim == 2
+        assert edge_feature.ndim == 2
+        x_i, x_j = self.index_get(x, edge_index)
+        xx, gcn_edge_feature, prob = self.edgeatten(x_i, edge_feature, x_j, weight, istrain=istrain)
+        xx = self.index_aggr(xx, edge_index, dim_size = x.shape[0])
+        xx = self.prop(torch.cat([x,xx],dim=1))
+        return xx, gcn_edge_feature
+  
+
 class MultiHeadedEdgeAttention(torch.nn.Module):
     def __init__(self, num_heads: int, dim_node: int, dim_edge: int, dim_atten: int, use_bn=False,
                  attention = 'fat', use_edge:bool = True, **kwargs):
@@ -39,6 +71,7 @@ class MultiHeadedEdgeAttention(torch.nn.Module):
         self.use_edge = use_edge
         self.nn_edge = build_mlp([dim_node*2+dim_edge,(dim_node+dim_edge),dim_edge],
                           do_bn= use_bn, on_last=False)
+        self.mask_obj = 0.5
         
         DROP_OUT_ATTEN = None
         if 'DROP_OUT_ATTEN' in kwargs:
@@ -57,14 +90,21 @@ class MultiHeadedEdgeAttention(torch.nn.Module):
             self.proj_edge  = build_mlp([dim_edge,dim_edge])
             self.proj_query = build_mlp([dim_node,dim_node])
             self.proj_value = build_mlp([dim_node,dim_atten])
-        else:
-            raise NotImplementedError('')
+        elif self.attention == 'distance':
+            self.proj_value = build_mlp([dim_node,dim_atten])
+
         
-    def forward(self, query, edge, value):
+    def forward(self, query, edge, value, weight=None, istrain=False):
         batch_dim = query.size(0)
-        edge_feature = self.nn_edge( torch.cat([query,edge,value],dim=1) )#.view(b, -1, 1)
         
+        edge_feature = torch.cat([query, edge, value],dim=1)
+        # avoid overfitting by mask relation input object feature
+        # if random.random() < self.mask_obj and istrain: 
+        #     feat_mask = torch.cat([torch.ones_like(query),torch.zeros_like(edge), torch.ones_like(value)],dim=1)
+        #     edge_feature = torch.where(feat_mask == 1, edge_feature, torch.zeros_like(edge_feature))
         
+        edge_feature = self.nn_edge( edge_feature )#.view(b, -1, 1)
+
         if self.attention == 'fat':
             value = self.proj_value(value)
             query = self.proj_query(query).view(batch_dim, self.d_n, self.num_heads)
@@ -72,43 +112,17 @@ class MultiHeadedEdgeAttention(torch.nn.Module):
             if self.use_edge:
                 prob = self.nn(torch.cat([query,edge],dim=1)) # b, dim, head    
             else:
-                prob = self.nn(query) # b, dim, head    
+                prob = self.nn(query) # b, dim, head 
             prob = prob.softmax(1)
             x = torch.einsum('bm,bm->bm', prob.reshape_as(value), value)
         
-        return x, edge_feature, prob
-    
-    
-     
-class GraphEdgeAttenNetwork(BaseNetwork):
-    def __init__(self, num_heads, dim_node, dim_edge, dim_atten, aggr= 'max', use_bn=False,
-                 flow='target_to_source',attention = 'fat',use_edge:bool=True, **kwargs):
-        super().__init__() #  "Max" aggregation.
-        self.name = 'edgeatten'
-        self.dim_node=dim_node
-        self.dim_edge=dim_edge
-        self.index_get = Gen_Index(flow=flow)
-        self.index_aggr = Aggre_Index(aggr=aggr,flow=flow)
+        elif self.attention == 'distance':
+            raise NotImplementedError()
         
-        self.attention = attention
-        assert self.attention in [ 'fat']
-        if self.attention == 'fat':
-            self.edgeatten = MultiHeadedEdgeAttention(
-                dim_node=dim_node,dim_edge=dim_edge,dim_atten=dim_atten,
-                num_heads=num_heads,use_bn=use_bn,attention=attention,use_edge=use_edge, **kwargs)
-            self.prop = build_mlp([dim_node+dim_atten, dim_node+dim_atten, dim_node],
-                             do_bn= use_bn, on_last=False)
         else:
             raise NotImplementedError('')
-
-    def forward(self, x, edge_feature, edge_index):
-        assert x.ndim == 2
-        assert edge_feature.ndim == 2
-        x_i, x_j = self.index_get(x, edge_index)
-        xx, gcn_edge_feature, prob = self.edgeatten(x_i, edge_feature, x_j)
-        xx = self.index_aggr(xx, edge_index, dim_size = x.shape[0])
-        xx = self.prop(torch.cat([x,xx],dim=1))
-        return xx, gcn_edge_feature, prob
+        
+        return x, edge_feature, prob
     
 
 ## Example code for GNN w/ Attention

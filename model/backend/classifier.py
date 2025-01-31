@@ -37,7 +37,7 @@ class ObjectClsMulti(BaseNetwork):
             x = self.bn2(x)
         x = self.relu(x)
         x = self.fc3(x)
-        return F.log_softmax(x, dim=1)
+        return F.softmax(x, dim=1)
 
 class RelationClsMulti(BaseNetwork):
 
@@ -75,4 +75,4 @@ class RelationClsMulti(BaseNetwork):
             x = self.bn2(x)
         x = self.relu(x)
         x = self.fc3(x)
-        return F.log_softmax(x, dim=1)
+        return torch.sigmoid(x)
