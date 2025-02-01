@@ -154,6 +154,7 @@ class BFeatVanillaTrainer():
                 self.wandb_log['Train/Total_Loss'] = t_loss
                 self.wandb_log['Train/Obj_Cls_Loss'] = c_obj_loss
                 self.wandb_log['Train/Rel_Cls_Loss'] = c_rel_loss
+                self.wandb_log['Train/Contrastive_Loss'] = contrastive_loss
                 logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
@@ -172,6 +173,7 @@ class BFeatVanillaTrainer():
                 mRecall_50 = self.evaluate_validation()
                 if mRecall_50 >= val_metric:
                     self.save_checkpoint(self.exp_name, "best_model.pth")
+                    val_metric = mRecall_50
                 self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))
             wandb.log(self.wandb_log)
     
