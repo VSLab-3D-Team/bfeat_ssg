@@ -36,6 +36,10 @@ class SSGLWBFeat3D(Dataset):
         self.classNames, self.relationNames, _, _ = \
             read_3dssg_annotation(self.data_path, self.path_selection, split)
         
+        # for multi relation output, we just remove off 'None' relationship
+        if self.config.multi_rel:
+            self.relationNames.pop(0)
+        
         self.relationship_json, self.objs_json, self.scans = relationship_json, objs_json, scans
         self.scan_data = scan_data
         # Pre-load entire 3RScan/3DSSG dataset in main memory

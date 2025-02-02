@@ -314,7 +314,7 @@ class BFeatVanillaTrainer():
             
     def __compute_mean_predicate(self, cls_matrix_list, topk_pred_list):
         cls_dict = {}
-        for i in range(27):
+        for i in range(26):
             cls_dict[i] = []
         
         for idx, j in enumerate(cls_matrix_list):
@@ -322,7 +322,7 @@ class BFeatVanillaTrainer():
                 cls_dict[j[-1]].append(topk_pred_list[idx])
         
         predicate_mean_1, predicate_mean_3, predicate_mean_5 = [], [], []
-        for i in range(27):
+        for i in range(26):
             l = len(cls_dict[i])
             if l > 0:
                 m_1 = (np.array(cls_dict[i]) <= 1).sum() / len(cls_dict[i])

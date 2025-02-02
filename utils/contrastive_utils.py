@@ -16,20 +16,23 @@ class ContrastiveSingleLabelSampler():
         self.text_encoder, _ = clip.load("ViT-B/32", device=device)
         
         self.predicate_cat = PREDICATE_CATEGORY.keys()
-        self.negative_index = { i: [] for i in range(27)}
-        for p_i in range(27):
-            for _, v in PREDICATE_CATEGORY.items():
-                if (p_i in v) and ((not p_i == 0) or (not p_i == 24)): 
-                    self.negative_index[p_i].extend([ x for x in v if not x == p_i ])
-                elif (p_i == 0) or (p_i == 24):
-                    self.negative_index[p_i].extend(v)
-                else:
+        self.negative_index = { i: [] for i in range(26)}
+        for p_i in range(26):
+            for k, v in PREDICATE_CATEGORY.items():
+                if k == "none":
                     continue
+                if (p_i + 1 in v) and (not p_i == 23): 
+                    self.negative_index[p_i].extend([ x - 1 for x in v if not x == (p_i + 1) ])
+                elif (p_i == 23) and (not k == 'cover'):
+                    self.negative_index[p_i].extend([ x - 1 for x in v ])
+        
         # print(self.negative_index)
     
     def __read_cls(self):        
         self.obj_label_list = read_txt_to_list(self.obj_label_path)
         self.rel_label_list = read_txt_to_list(self.rel_label_path)
+        if self.d_config.multi_rel:
+            self.rel_label_list.pop(0)
     
     def __get_negative(self, gt_rel_index):
         return random.choice(self.negative_index[gt_rel_index])
@@ -53,13 +56,14 @@ class ContrastiveSingleLabelSampler():
                 
                 rel_index.append(edge_index)
             else:
+                # print(rels_target.shape[-1])
                 for i in range(rels_target.shape[-1]):
                     if rels_target[edge_index][i] == 1:
-                        target_rel = self.rel_label_list[i + 1]
+                        target_rel = self.rel_label_list[i]
                         pos_token = clip.tokenize(f"a point cloud of a {target_eo} {target_rel} a {target_os}")
                         target_pos_token.append(pos_token)
                         
-                        neg_predicate = self.rel_label_list[self.__get_negative(i + 1)]
+                        neg_predicate = self.rel_label_list[self.__get_negative(i)]
                         neg_token = clip.tokenize(f"a point cloud of a {target_eo} {neg_predicate} a {target_os}")
                         target_neg_token.append(neg_token)
                         
