@@ -55,11 +55,11 @@ class ContrastiveSingleLabelSampler():
             else:
                 for i in range(rels_target.shape[-1]):
                     if rels_target[edge_index][i] == 1:
-                        target_rel = self.rel_label_list[i]
+                        target_rel = self.rel_label_list[i + 1]
                         pos_token = clip.tokenize(f"a point cloud of a {target_eo} {target_rel} a {target_os}")
                         target_pos_token.append(pos_token)
                         
-                        neg_predicate = self.rel_label_list[self.__get_negative(i)]
+                        neg_predicate = self.rel_label_list[self.__get_negative(i + 1)]
                         neg_token = clip.tokenize(f"a point cloud of a {target_eo} {neg_predicate} a {target_os}")
                         target_neg_token.append(neg_token)
                         
