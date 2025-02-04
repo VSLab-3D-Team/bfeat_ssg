@@ -2,15 +2,15 @@ from model.frontend.pointnet import PointNetEncoder
 from model.backend.gat import BFeatVanillaGAT
 from model.frontend.relextractor import *
 from model.backend.classifier import RelationClsMulti, ObjectClsMulti
-from model.baseline import BaseNetwork
+from model.models.baseline import BaseNetwork
 from utils.model_utils import Gen_Index
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class BFeatVanillaNet(BaseNetwork):
+class BFeatSkipObjNet(BaseNetwork):
     def __init__(self, config, n_obj_cls, n_rel_cls, device):
-        super(BFeatVanillaNet, self).__init__()
+        super(BFeatSkipObjNet, self).__init__()
         self.config = config
         self.t_config = config.train
         self.m_config = config.model
@@ -62,11 +62,11 @@ class BFeatVanillaNet(BaseNetwork):
         edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
         
         obj_center = descriptor[:, :3].clone()
-        obj_gnn_feats, edge_gnn_feats = self.gat(
+        _, edge_gnn_feats = self.gat(
             obj_feats, edge_feats, edge_indices, batch_ids, obj_center
         )
         
-        obj_pred = self.obj_classifier(obj_gnn_feats)
+        obj_pred = self.obj_classifier(obj_feats)
         rel_pred = self.rel_classifier(edge_gnn_feats)
         
         return edge_feats, obj_pred, rel_pred

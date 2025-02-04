@@ -44,7 +44,8 @@ class RelFeatNegExtractor(nn.Module):
 ## 우선, High frequency information을 잘 capture할 수 있도록 고안된 모듈임
 ## 그걸 위해서 kernel trick을 활용하는 것일 뿐이다.
 ## 하지만, 우리는 high frequency feature가 필요한 것이 아니라, classification 문제를 풀어내는 것이 목표이다.
-## 따라서, fourier feature 안은 폐기한다.
+## 따라서, fourier feature 안은 폐기한다. (25/01/31)
+## 혹시 모르니 함 해보자... (25/02/03)
 class RelFeatFreqExtractor(nn.Module):
     def __init__(self, config):
         super(RelFeatFreqExtractor, self).__init__()

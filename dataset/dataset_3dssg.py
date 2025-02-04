@@ -90,7 +90,7 @@ class SSGLWBFeat3D(Dataset):
     '''
     def __get_data(
         self, scene_points, obj_masks, num_pts_normalized, relationships,
-        instance_map, rel_json, padding=0.2, all_edge=False
+        instance_map, rel_json, padding=0.2, all_edge=True
     ):
         all_instance = list(np.unique(obj_masks))
         nodes_all = list(instance_map.keys())

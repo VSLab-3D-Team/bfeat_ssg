@@ -8,7 +8,7 @@ Created on Sat Oct 10 16:46:24 2020
 
 import torch
 from torch_geometric.nn.conv import MessagePassing
-from model.baseline import mySequential
+from model.models.baseline import mySequential
 
 def MLP(channels: list, do_bn=False, on_last=False, drop_out=None):
     """ Multi-layer perceptron """

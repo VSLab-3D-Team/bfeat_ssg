@@ -5,7 +5,7 @@
 import torch
 import torch.nn as nn
 from utils.model_utils import build_mlp, Gen_Index, Aggre_Index, MLP
-from model.baseline import BaseNetwork
+from model.models.baseline import BaseNetwork
 from model.backend.attention import MultiHeadAttention
 
 

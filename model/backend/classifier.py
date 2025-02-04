@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.baseline import BaseNetwork
+from model.models.baseline import BaseNetwork
 
 class ObjectClsMulti(BaseNetwork):
     def __init__(self, k, in_size, batch_norm=True, drop_out=True, init_weights=True):
