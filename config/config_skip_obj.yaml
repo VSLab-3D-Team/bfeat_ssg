@@ -15,7 +15,7 @@ train:
   log_interval: 20
   evaluation_interval: 10
   save_interval: 20
-  batch_size: 32
+  batch_size: 64
   workers: 4
   wandb_path: ./wandb
   wandb_project: bfeat_sg_skip_obj
