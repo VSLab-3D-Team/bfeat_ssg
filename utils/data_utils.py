@@ -217,7 +217,7 @@ def read_scan_data(config, split, device):
     classNames, relationNames, data, selected_scans = \
         read_3dssg_annotation(data_path, path_selection, split)
     
-    wobjs, wrels, o_obj_cls, o_rel_cls = compute(classNames, relationNames, data,selected_scans, False)
+    wobjs, wrels, o_obj_cls, o_rel_cls = compute(classNames, relationNames, data, selected_scans, False)
     w_cls_obj = torch.from_numpy(np.array(o_obj_cls)).float().to(device)
     w_cls_rel = torch.from_numpy(np.array(o_rel_cls)).float().to(device)
     

@@ -13,9 +13,12 @@ class RelFeatNaiveExtractor(nn.Module):
     def __init__(self, input_dim, geo_dim, out_dim):
         super(RelFeatNaiveExtractor, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(input_dim * 2 + geo_dim, 512),
+            nn.Linear(input_dim * 2 + geo_dim, 1024),
             nn.ReLU(),
-            nn.Linear(512, out_dim),
+            nn.Linear(1024, 1024),
+            nn.ReLU(),
+            nn.BatchNorm1d(1024),
+            nn.Linear(1024, out_dim),
             nn.ReLU(),
         )
 
@@ -23,9 +26,9 @@ class RelFeatNaiveExtractor(nn.Module):
         x = torch.cat((x_i, x_j, geo_feats), dim=-1)
         return self.fc(x)
 
-class RelFeatNegExtractor(nn.Module):
+class RelFeatCrossExtractor(nn.Module):
     def __init__(self, dim_obj_feats, dim_geo_feats, dim_out_feats):
-        super(RelFeatNegExtractor, self).__init__()
+        super(RelFeatCrossExtractor, self).__init__()
         self.linear_obj_fc = nn.Linear(dim_obj_feats, dim_out_feats, bias=False)
         self.linear_geo_fc = nn.Linear(dim_geo_feats, dim_out_feats)
     

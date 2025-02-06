@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List
 from dataset.dataloader import CustomDataLoader, collate_fn_bfeat
 from dataset import build_dataset
+from utils.logger import build_meters
 from utils.eval_utils import *
 import numpy as np
 import torch
@@ -54,6 +55,13 @@ class BaseTrainer(ABC):
         self.__setup_checkpoint(self.exp_name)
         wandb.init(project="BetterFeat_3DSSG", name=self.exp_name)
         self.wandb_log = {}
+        
+        # Average & Max Meter
+        self.meters = build_meters(self.t_config.meter)
+    
+    def reset_meters(self):
+        for k in list(self.meters.keys()):
+            self.meters[k].reset()
     
     def __setup_checkpoint(self, exp_name):
         if not os.path.exists('checkpoints'):
@@ -81,18 +89,25 @@ class BaseTrainer(ABC):
         """
         pass
     
+    def write_wandb_log(self):
+        for k in list(self.meters.keys()):
+            if self.t_config.meter == "average":
+                self.wandb_log[k] = self.meters[k].avg
+            elif self.t_config.meter == "max":
+                self.wandb_log[k] = self.meters[k].max_val
+    
     def evaluate_train(self, obj_logits, gt_obj_cls, rel_logits, gt_rel_cls, edge_indices):
         top_k_obj = evaluate_topk_object(obj_logits.detach(), gt_obj_cls, topk=11)
         gt_edges = get_gt(gt_obj_cls, gt_rel_cls, edge_indices, self.d_config.multi_rel)
         top_k_rel = evaluate_topk_predicate(rel_logits.detach(), gt_edges, self.d_config.multi_rel, topk=6)
         obj_topk_list = [100 * (top_k_obj <= i).sum() / len(top_k_obj) for i in [1, 5, 10]]
         rel_topk_list = [100 * (top_k_rel <= i).sum() / len(top_k_rel) for i in [1, 3, 5]]
-        self.wandb_log["Train/Obj_R1"] = obj_topk_list[0]
-        self.wandb_log["Train/Obj_R3"] = obj_topk_list[1]
-        self.wandb_log["Train/Obj_R5"] = obj_topk_list[2]
-        self.wandb_log["Train/Pred_R1"] = rel_topk_list[0]
-        self.wandb_log["Train/Pred_R3"] = rel_topk_list[1]
-        self.wandb_log["Train/Pred_R5"] = rel_topk_list[2]
+        self.meters["Train/Obj_R1"].update(obj_topk_list[0])
+        self.meters["Train/Obj_R3"].update(obj_topk_list[1])
+        self.meters["Train/Obj_R5"].update(obj_topk_list[2])
+        self.meters["Train/Pred_R1"].update(rel_topk_list[0])
+        self.meters["Train/Pred_R3"].update(rel_topk_list[1])
+        self.meters["Train/Pred_R5"].update(rel_topk_list[2])
         log = [
             ("train/Obj_R1", obj_topk_list[0]),
             ("train/Obj_R5", obj_topk_list[1]),

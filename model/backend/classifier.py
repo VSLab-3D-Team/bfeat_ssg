@@ -37,7 +37,7 @@ class ObjectClsMulti(BaseNetwork):
             x = self.bn2(x)
         x = self.relu(x)
         x = self.fc3(x)
-        return F.softmax(x, dim=1)
+        return x
 
 class RelationClsMulti(BaseNetwork):
 

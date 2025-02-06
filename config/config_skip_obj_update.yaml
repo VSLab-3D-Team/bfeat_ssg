@@ -13,19 +13,21 @@ train:
   name: GAT
   epoch: 1000
   log_interval: 20
-  evaluation_interval: 20
+  evaluation_interval: 10
+  save_interval: 20
   batch_size: 32
   workers: 4
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_entire
+  wandb_project: bfeat_sg_skip_obj_update
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
-  meter: avgerage
-  num_negative_sample: 1
+  meter: average
+  num_negative_sample: 16
+  freq_temperature: 0.4
 
 model:
-  num_graph_update: 1
+  num_graph_update: 2
   layers: 50
   dim_edge_feats: 512
   dim_obj_feats: 512

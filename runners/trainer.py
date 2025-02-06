@@ -150,7 +150,6 @@ class BFeatVanillaTrainer():
                 t_loss = c_obj_loss + c_rel_loss + contrastive_loss
                 t_loss.backward()
                 self.optimizer.step()
-                self.lr_scheduler.step()
                 self.wandb_log['Train/Total_Loss'] = t_loss
                 self.wandb_log['Train/Obj_Cls_Loss'] = c_obj_loss
                 self.wandb_log['Train/Rel_Cls_Loss'] = c_rel_loss
@@ -168,7 +167,8 @@ class BFeatVanillaTrainer():
                     ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
                 progbar.add(1, values=logs)
-            
+                
+            self.lr_scheduler.step()
             if e % self.t_config.evaluation_interval == 0:
                 mRecall_50 = self.evaluate_validation()
                 if mRecall_50 >= val_metric:

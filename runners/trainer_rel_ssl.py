@@ -4,16 +4,16 @@ from utils.contrastive_utils import ContrastiveSingleLabelSampler
 from runners.base_trainer import BaseTrainer
 from model.frontend.relextractor import *
 from model.models.model_skip_obj import BFeatSkipObjNet
-from model.loss import TripletLoss, ContrastiveLoss, MultiLabelInfoNCELoss
+from model.loss import TripletLoss, ContrastiveLoss
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import clip
 import wandb
 
-class BFeatSkipObjTrainer(BaseTrainer):
+class BFeatRelSSLTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device)
         
@@ -27,12 +27,7 @@ class BFeatSkipObjTrainer(BaseTrainer):
             lr=self.opt_config.learning_rate, 
             weight_decay=self.opt_config.weight_decay
         )
-        self.lr_scheduler = CyclicLR(
-            self.optimizer, base_lr=self.opt_config.learning_rate / 10, 
-            step_size_up=10, max_lr=self.opt_config.learning_rate * 5, 
-            gamma=0.8, mode='exp_range', cycle_momentum=False
-        )
-        # CosineAnnealingLR(self.optimizer, T_max=self.t_config.epoch, eta_min=0, last_epoch=-1)
+        self.lr_scheduler = CosineAnnealingLR(self.optimizer, T_max=self.t_config.epoch, eta_min=0, last_epoch=-1)
         # Loss function 
         self.c_criterion = TripletLoss(margin=0.1)
     
@@ -97,14 +92,10 @@ class BFeatSkipObjTrainer(BaseTrainer):
                 contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair)
                 
                 # TODO: determine coefficient for each loss
-                lambda_c = 1.0 # 0.1
-                lambda_r = 1.0
-                lambda_o = 1.0 # 0.1
-                t_loss = lambda_o * c_obj_loss \
-                    + lambda_r * c_rel_loss \
-                    + lambda_c * contrastive_loss
+                t_loss = c_obj_loss + c_rel_loss + contrastive_loss
                 t_loss.backward()
                 self.optimizer.step()
+                self.lr_scheduler.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
                 self.meters['Train/Obj_Cls_Loss'].update(c_obj_loss.detach().item())
                 self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
@@ -122,8 +113,7 @@ class BFeatSkipObjTrainer(BaseTrainer):
                     ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
                 progbar.add(1, values=logs)
-                
-            self.lr_scheduler.step()
+            
             if e % self.t_config.evaluation_interval == 0:
                 mRecall_50 = self.evaluate_validation()
                 if mRecall_50 >= val_metric:

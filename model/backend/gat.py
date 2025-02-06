@@ -178,7 +178,7 @@ class BFeatSkipObjUpdateGAT(torch.nn.Module):
         obj_center=None,  
         istrain=False
     ):
-
+        ## skip the object feature update
         for i in range(self.depth):
             _, edge_feature_3d = self.gcn_3ds[i](obj_feature_3d, edge_feature_3d, edge_index, istrain=istrain)
 

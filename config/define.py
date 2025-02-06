@@ -22,3 +22,60 @@ PREDICATE_CATEGORY = {
     "cover": [24],
     "none": [0]
 }
+
+SYNONYM_LIST = {
+    1: ["carried by", "anchored by"],
+    2: ["left-hand", "leftward"], 
+    3: ["right-hand"],
+    4: ["in front of", "forward", "frontal"],
+    5: ["backward"], 
+    6: ["nearby", "adjacent to", "next to"],
+    7: ["within"],
+    8: ["larger than"], 
+    9: ["tinier than", "more compact than"],
+    10: ["above"],
+    11: ["below"], 
+    12: ["same shape as"],
+    13: ["not different with"],
+    14: [""], 
+    15: [],
+    16: [],
+    17: [], 
+    18: [],
+    19: [],
+    20: [], 
+    21: [],
+    22: [],
+    23: [], 
+    24: [],
+    25: [],
+    26: [],
+}
+
+
+# 1. supported by
+# 2. left
+# 3. right
+# 4. front
+# 5. behind
+# 6. close by
+# 7. inside
+# 8. bigger than
+# 9. smaller than
+# 10. higher than
+# 11. lower than
+# 12. same symmetry as
+# 13. same as
+# 14. attached to
+# 15. standing on
+# 16. lying on
+# 17. hanging on
+# 18. connected to
+# 19. leaning against
+# 20. part of
+# 21. belonging to
+# 22. build in
+# 23. standing in
+# 24. cover
+# 25. lying in
+# 26. hanging in

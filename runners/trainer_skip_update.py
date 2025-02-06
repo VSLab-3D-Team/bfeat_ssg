@@ -55,6 +55,7 @@ class BFeatSkipObjUpdateTrainer(BaseTrainer):
         # Training Loop
         for e in range(self.t_config.epoch):
             self.wandb_log = {}
+            self.reset_meters()
             progbar = Progbar(n_iters, width=20, stateful_metrics=['Misc/it'])
             self.model = self.model.train()
             loader = iter(self.t_dataloader)
@@ -94,11 +95,10 @@ class BFeatSkipObjUpdateTrainer(BaseTrainer):
                 t_loss = c_obj_loss + c_rel_loss + contrastive_loss
                 t_loss.backward()
                 self.optimizer.step()
-                self.lr_scheduler.step()
-                self.wandb_log['Train/Total_Loss'] = t_loss
-                self.wandb_log['Train/Obj_Cls_Loss'] = c_obj_loss
-                self.wandb_log['Train/Rel_Cls_Loss'] = c_rel_loss
-                self.wandb_log['Train/Contrastive_Loss'] = contrastive_loss
+                self.meters['Train/Total_Loss'].update(t_loss.detach().item())
+                self.meters['Train/Obj_Cls_Loss'].update(c_obj_loss.detach().item())
+                self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
+                self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
                 logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
@@ -118,7 +118,12 @@ class BFeatSkipObjUpdateTrainer(BaseTrainer):
                 if mRecall_50 >= val_metric:
                     self.save_checkpoint(self.exp_name, "best_model.pth")
                     val_metric = mRecall_50
-                self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))
+                if e % self.t_config.save_interval == 0:
+                    self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))
+            
+            self.lr_scheduler.step()
+            self.wandb_log["Train/learning_rate"] = self.lr_scheduler.get_last_lr()[0]
+            self.write_wandb_log()
             wandb.log(self.wandb_log)
     
     def evaluate_validation(self):

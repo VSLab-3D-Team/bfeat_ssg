@@ -1,5 +1,61 @@
+from abc import ABC, abstractmethod
+from typing import Dict
 import numpy as np
 import sys, time
+
+class AbstractMeter(object):
+    def __init__(self, name: str, fmt: str = ":f"):
+        self.name = name
+        self.fmt = fmt
+        pass
+    
+    @abstractmethod
+    def reset(self):
+        pass
+    
+    @abstractmethod
+    def update(self, value: float, n: int = 1):
+        pass
+    
+    def __str__(self):
+        fmtstr = "{name} {value" + self.fmt + "} ({avg" + self.fmt + "})"
+        return fmtstr.format(**self.__dict__)
+    
+
+class AverageMeter(AbstractMeter):
+    """Computes and stores the average and current value"""
+
+    def __init__(self, name: str, fmt: str = ":f") -> None:
+        super().__init__(name, fmt)
+        self.reset()
+
+    def reset(self) -> None:
+        self.value = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, value: float, n: int = 1) -> None:
+        self.value = value
+        self.sum += value * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+class MaxMeter(AbstractMeter):
+    """Computes and stores the average and current value"""
+
+    def __init__(self, name: str, fmt: str = ":f") -> None:
+        super().__init__(name, fmt)
+        self.reset()
+
+    def reset(self) -> None:
+        self.value = 0
+        self.max_val = -987654321
+
+    def update(self, value: float) -> None:
+        self.value = value
+        self.max_val = max(self.max_val, self.value)
+
 
 class Progbar(object):
     """Displays a progress bar.
@@ -165,3 +221,65 @@ class Progbar(object):
 
     def add(self, n, values=None,silent=False):
         self.update(self._seen_so_far + n, values,silent=silent)
+        
+def build_meters(type: str) -> Dict[str, AbstractMeter]:
+    meters = {}
+    if type == "average":
+        # Train Loss metrics
+        meters["Train/Total_Loss"] = AverageMeter(name="Train/Total_Loss")
+        meters["Train/Obj_Cls_Loss"] = AverageMeter(name="Train/Obj_Cls_Loss")
+        meters["Train/Rel_Cls_Loss"] = AverageMeter(name="Train/Rel_Cls_Loss")
+        meters["Train/Contrastive_Loss"] = AverageMeter(name="Train/Contrastive_Loss")
+        # Train evaluation metrics
+        meters["Train/Obj_R1"] = AverageMeter(name="Train/Obj_R1")
+        meters["Train/Obj_R3"] = AverageMeter(name="Train/Obj_R3")
+        meters["Train/Obj_R5"] = AverageMeter(name="Train/Obj_R5")
+        meters["Train/Pred_R1"] = AverageMeter(name="Train/Pred_R1")
+        meters["Train/Pred_R3"] = AverageMeter(name="Train/Pred_R3")
+        meters["Train/Pred_R5"] = AverageMeter(name="Train/Pred_R5")
+        # Validation evaluation metrics
+        # meters["Validation/Acc@1/obj_cls"] = AverageMeter(name="Validation/Acc@1/obj_cls")
+        # meters["Validation/Acc@5/obj_cls"] = AverageMeter(name="Validation/Acc@5/obj_cls")
+        # meters["Validation/Acc@10/obj_cls"] = AverageMeter(name="Validation/Acc@10/obj_cls")
+        # meters["Validation/Acc@1/rel_cls_acc"] = AverageMeter(name="Validation/Acc@1/rel_cls_acc")
+        # meters["Validation/Acc@5/rel_cls_acc"] = AverageMeter(name="Validation/Acc@5/rel_cls_acc")
+        # meters["Validation/Acc@10/rel_cls_acc"] = AverageMeter(name="Validation/Acc@10/rel_cls_acc")
+        # meters["Validation/Acc@1/rel_cls_acc_mean"] = AverageMeter(name="Validation/Acc@1/rel_cls_acc_mean")
+        # meters["Validation/Acc@5/rel_cls_acc_mean"] = AverageMeter(name="Validation/Acc@5/rel_cls_acc_mean")
+        # meters["Validation/Acc@10/rel_cls_acc_mean"] = AverageMeter(name="Validation/Acc@10/rel_cls_acc_mean")
+        # meters["Validation/Acc@50/triplet_acc"] = AverageMeter(name="Validation/Acc@50/triplet_acc")
+        # meters["Validation/Acc@100/triplet_acc"] = AverageMeter(name="Validation/Acc@100/triplet_acc")
+        # meters["Validation/mRecall@50"] = AverageMeter(name="Validation/mRecall@50")
+        # meters["Validation/mRecall@100"] = AverageMeter(name="Validation/mRecall@100")
+        
+    elif type == "max":
+        # Train Loss metrics
+        meters["Train/Total_Loss"] = MaxMeter(name="Train/Total_Loss")
+        meters["Train/Obj_Cls_Loss"] = MaxMeter(name="Train/Obj_Cls_Loss")
+        meters["Train/Rel_Cls_Loss"] = MaxMeter(name="Train/Rel_Cls_Loss")
+        meters["Train/Contrastive_Loss"] = MaxMeter(name="Train/Contrastive_Loss")
+        # Train evaluation metrics
+        meters["Train/Obj_R1"] = MaxMeter(name="Train/Obj_R1")
+        meters["Train/Obj_R3"] = MaxMeter(name="Train/Obj_R3")
+        meters["Train/Obj_R5"] = MaxMeter(name="Train/Obj_R5")
+        meters["Train/Pred_R1"] = MaxMeter(name="Train/Pred_R1")
+        meters["Train/Pred_R3"] = MaxMeter(name="Train/Pred_R3")
+        meters["Train/Pred_R5"] = MaxMeter(name="Train/Pred_R5")
+        # Validation evaluation metrics
+        # meters["Validation/Acc@1/obj_cls"] = MaxMeter(name="Validation/Acc@1/obj_cls")
+        # meters["Validation/Acc@5/obj_cls"] = MaxMeter(name="Validation/Acc@5/obj_cls")
+        # meters["Validation/Acc@10/obj_cls"] = MaxMeter(name="Validation/Acc@10/obj_cls")
+        # meters["Validation/Acc@1/rel_cls_acc"] = MaxMeter(name="Validation/Acc@1/rel_cls_acc")
+        # meters["Validation/Acc@5/rel_cls_acc"] = MaxMeter(name="Validation/Acc@5/rel_cls_acc")
+        # meters["Validation/Acc@10/rel_cls_acc"] = MaxMeter(name="Validation/Acc@10/rel_cls_acc")
+        # meters["Validation/Acc@1/rel_cls_acc_mean"] = MaxMeter(name="Validation/Acc@1/rel_cls_acc_mean")
+        # meters["Validation/Acc@5/rel_cls_acc_mean"] = MaxMeter(name="Validation/Acc@5/rel_cls_acc_mean")
+        # meters["Validation/Acc@10/rel_cls_acc_mean"] = MaxMeter(name="Validation/Acc@10/rel_cls_acc_mean")
+        # meters["Validation/Acc@50/triplet_acc"] = MaxMeter(name="Validation/Acc@50/triplet_acc")
+        # meters["Validation/Acc@100/triplet_acc"] = MaxMeter(name="Validation/Acc@100/triplet_acc")
+        # meters["Validation/mRecall@50"] = MaxMeter(name="Validation/mRecall@50")
+        # meters["Validation/mRecall@100"] = MaxMeter(name="Validation/mRecall@100")
+        
+    else:
+        raise NotImplementedError
+    return meters
