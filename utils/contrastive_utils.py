@@ -160,6 +160,18 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
         s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
         return s_list.tolist()
     
+    def __crazy_negative_embedding(self, target_neg_tokens: torch.Tensor):
+        """
+        Embrace the bullshit.
+        GPU is too expensive.
+        FXXK YOU NVIDIA
+        """
+        target_neg_feats = []
+        for n_i in range(self.num_neg_samples):
+            t_tokens = target_neg_tokens[:, n_i, :] # M X N_feat
+            target_neg_feats.append(self.text_encoder.encode_text(t_tokens).unsqueeze(1))
+        return torch.cat(target_neg_feats, dim=1)
+    
     def sample(self, objs_target, rels_target, edges):
         """
         Inputs: 
@@ -175,7 +187,7 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
         # target_pos_feats: N X N_feats
         # target_neg_feats: N X N_neg X N_feats
         target_pos_token, target_neg_token = [], []
-        target_pos_feats, target_neg_feats = [], []
+        
         rel_index = []
         for edge_index in range(len(edges)):
             idx_eo = edges[edge_index][0]
@@ -210,13 +222,10 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
                             rel_index.append(edge_index)
         
         with torch.no_grad():
-            p_target_tokens = torch.vstack(target_pos_token) # M X N_t
-            n_target_tokens = torch.vstack(target_neg_token) # M X N_neg X N_t
-            M, N, T = n_target_tokens.shape
-            n_target_tokens_r = n_target_tokens.contiguous().view(M * N, T)
-            p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens).to(self.device) # M X N_feats
-            n_target_rel_feats = self.text_encoder.encode_text(n_target_tokens_r).to(self.device) # M X N_neg X N_feats
-            n_target_rel_feats = n_target_rel_feats.view(M, N, -1)
+            p_target_tokens = torch.vstack(target_pos_token).to(self.device) # M X N_t
+            n_target_tokens = torch.vstack(target_neg_token).to(self.device) # M X N_neg X N_t
+            p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
+            n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
         return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
 
 class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
