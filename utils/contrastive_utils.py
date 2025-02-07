@@ -3,6 +3,7 @@ from config.define import *
 from utils.os_utils import read_txt_to_list
 from utils.data_utils import compute
 from operator import itemgetter
+from einops import rearrange
 import torch.nn.functional as F
 import torch
 import numpy as np
@@ -155,8 +156,9 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
         if not anchor_idx == -1: # If anchor is not none
             sample_dist[anchor_idx] = 0.
             sample_dist = sample_dist / sample_dist.sum()
-        sample_indices = torch.multinomial(sample_dist, self.num_neg_samples, replacement=False).cpu().tolist()
-        return itemgetter(*sample_indices)(self.rel_label_list)
+        sample_indices = torch.multinomial(sample_dist, self.num_neg_samples, replacement=False)
+        s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
+        return s_list.tolist()
     
     def sample(self, objs_target, rels_target, edges):
         """
@@ -170,9 +172,9 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
             - neg_target_rel_feats: M X N_neg X N_feats
             - rel_index, Relationship Index for G.T Labels: M X 1 \in [0, N-1]
         """
-        # target_pos_token, target_neg_token = [], []
         # target_pos_feats: N X N_feats
         # target_neg_feats: N X N_neg X N_feats
+        target_pos_token, target_neg_token = [], []
         target_pos_feats, target_neg_feats = [], []
         rel_index = []
         for edge_index in range(len(edges)):
@@ -185,27 +187,37 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
                 if rels_target[edge_index].sum() == 0:
                     # relationship = 'none'
                     pos_token = clip.tokenize(f"the {target_eo} and the {target_os} has no relation in the point cloud").to(self.device)
-                    target_pos_feats.append(self.text_encoder.encode_text(pos_token))
+                    target_pos_token.append(pos_token) # 1 X N_t
+                    # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
                     
                     neg_samples = self.__sample_negative_labels(-1)
                     neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
-                    target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
+                    target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                    # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
                     rel_index.append(edge_index)
                 else:
                     for i in range(rels_target.shape[-1]):
                         if rels_target[edge_index][i] == 1:
                             pos_rel = self.rel_label_list[i]
                             pos_token = clip.tokenize(f"a point cloud of a {target_eo} {pos_rel} a {target_os}").to(self.device)
-                            target_pos_feats.append(self.text_encoder.encode_text(pos_token))
+                            target_pos_token.append(pos_token) # 1 X N_t
+                            # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
                             
                             neg_samples = self.__sample_negative_labels(i)
                             neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
-                            target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
+                            target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                            # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
                             rel_index.append(edge_index)
         
-        p_target_rel_feats = torch.vstack(target_pos_feats)
-        n_target_rel_feats = torch.vstack(target_neg_feats)
-        return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device).int()
+        with torch.no_grad():
+            p_target_tokens = torch.vstack(target_pos_token) # M X N_t
+            n_target_tokens = torch.vstack(target_neg_token) # M X N_neg X N_t
+            M, N, T = n_target_tokens.shape
+            n_target_tokens_r = n_target_tokens.contiguous().view(M * N, T)
+            p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens).to(self.device) # M X N_feats
+            n_target_rel_feats = self.text_encoder.encode_text(n_target_tokens_r).to(self.device) # M X N_neg X N_feats
+            n_target_rel_feats = n_target_rel_feats.view(M, N, -1)
+        return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
 
 class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
     """
