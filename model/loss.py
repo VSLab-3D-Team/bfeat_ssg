@@ -73,6 +73,6 @@ class MultiLabelInfoNCELoss(nn.Module):
         sim_ap_exp = torch.exp(sim_ap) # B X M
         sim_an_exp = torch.sum(torch.exp(sim_an), dim=-1) # B X M
         
-        info_nce_mat = torch.log(sim_ap_exp / sim_an_exp) * _mask # B X M
+        info_nce_mat = -torch.log(sim_ap_exp / sim_an_exp) * _mask # B X M
         loss = info_nce_mat[info_nce_mat != 0]
         return torch.mean(loss)
