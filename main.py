@@ -23,7 +23,7 @@ def train(config):
         trainer.train()
 
 def experiment(config):
-    ## TODO: Implement for various experiments 
+    ## TODO: Implement for various experiments e.g. ScanNet
     
     pass
 

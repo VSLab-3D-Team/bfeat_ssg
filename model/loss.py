@@ -65,7 +65,7 @@ class MultiLabelInfoNCELoss(nn.Module):
         ## Masking the Multi-labeled predicate mask
         B, M = anchor.shape[0], rel_index.shape[0]
         _mask = torch.zeros((B, M), dtype=torch.float32).to(self.device)
-        _mask.scatter_(0, rel_index.reshape(-1).unsqueeze(0), 1.0)
+        _mask.scatter_(0, rel_index.to(torch.int64).reshape(-1).unsqueeze(0), 1.0)
         
         sim_ap = torch.matmul(anchor, positive.T) / self.temperature  # B x M
         sim_an = torch.einsum('nd,mkd->nmk', anchor, negative) / self.temperature  # B x M x 16

@@ -103,8 +103,8 @@ class BaseTrainer(ABC):
         obj_topk_list = [100 * (top_k_obj <= i).sum() / len(top_k_obj) for i in [1, 5, 10]]
         rel_topk_list = [100 * (top_k_rel <= i).sum() / len(top_k_rel) for i in [1, 3, 5]]
         self.meters["Train/Obj_R1"].update(obj_topk_list[0])
-        self.meters["Train/Obj_R3"].update(obj_topk_list[1])
-        self.meters["Train/Obj_R5"].update(obj_topk_list[2])
+        self.meters["Train/Obj_R5"].update(obj_topk_list[1])
+        self.meters["Train/Obj_R10"].update(obj_topk_list[2])
         self.meters["Train/Pred_R1"].update(rel_topk_list[0])
         self.meters["Train/Pred_R3"].update(rel_topk_list[1])
         self.meters["Train/Pred_R5"].update(rel_topk_list[2])

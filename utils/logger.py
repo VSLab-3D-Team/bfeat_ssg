@@ -232,8 +232,8 @@ def build_meters(type: str) -> Dict[str, AbstractMeter]:
         meters["Train/Contrastive_Loss"] = AverageMeter(name="Train/Contrastive_Loss")
         # Train evaluation metrics
         meters["Train/Obj_R1"] = AverageMeter(name="Train/Obj_R1")
-        meters["Train/Obj_R3"] = AverageMeter(name="Train/Obj_R3")
-        meters["Train/Obj_R5"] = AverageMeter(name="Train/Obj_R5")
+        meters["Train/Obj_R5"] = AverageMeter(name="Train/Obj_R3")
+        meters["Train/Obj_R10"] = AverageMeter(name="Train/Obj_R5")
         meters["Train/Pred_R1"] = AverageMeter(name="Train/Pred_R1")
         meters["Train/Pred_R3"] = AverageMeter(name="Train/Pred_R3")
         meters["Train/Pred_R5"] = AverageMeter(name="Train/Pred_R5")
@@ -260,8 +260,8 @@ def build_meters(type: str) -> Dict[str, AbstractMeter]:
         meters["Train/Contrastive_Loss"] = MaxMeter(name="Train/Contrastive_Loss")
         # Train evaluation metrics
         meters["Train/Obj_R1"] = MaxMeter(name="Train/Obj_R1")
-        meters["Train/Obj_R3"] = MaxMeter(name="Train/Obj_R3")
-        meters["Train/Obj_R5"] = MaxMeter(name="Train/Obj_R5")
+        meters["Train/Obj_R5"] = MaxMeter(name="Train/Obj_R3")
+        meters["Train/Obj_R10"] = MaxMeter(name="Train/Obj_R5")
         meters["Train/Pred_R1"] = MaxMeter(name="Train/Pred_R1")
         meters["Train/Pred_R3"] = MaxMeter(name="Train/Pred_R3")
         meters["Train/Pred_R5"] = MaxMeter(name="Train/Pred_R5")

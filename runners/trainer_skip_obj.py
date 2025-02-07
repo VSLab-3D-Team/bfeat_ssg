@@ -61,7 +61,7 @@ class BFeatSkipObjTrainer(BaseTrainer):
         for e in range(self.t_config.epoch):
             self.wandb_log = {}
             self.reset_meters()
-            progbar = Progbar(n_iters, width=20, stateful_metrics=['Misc/it'])
+            progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/epo', 'Misc/it'])
             self.model = self.model.train()
             loader = iter(self.t_dataloader)
             
@@ -97,9 +97,9 @@ class BFeatSkipObjTrainer(BaseTrainer):
                 contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair)
                 
                 # TODO: determine coefficient for each loss
-                lambda_c = 1.0 # 0.1
-                lambda_r = 1.0
-                lambda_o = 1.0 # 0.1
+                lambda_o = self.t_config.lambda_obj # 0.1
+                lambda_r = self.t_config.lambda_rel
+                lambda_c = self.t_config.lambda_con # 0.1
                 t_loss = lambda_o * c_obj_loss \
                     + lambda_r * c_rel_loss \
                     + lambda_c * contrastive_loss
@@ -109,19 +109,19 @@ class BFeatSkipObjTrainer(BaseTrainer):
                 self.meters['Train/Obj_Cls_Loss'].update(c_obj_loss.detach().item())
                 self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
                 self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
-                logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
                     ("train/contrastive_loss", contrastive_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
-                ] + logs
-                t_log += [
                     ("Misc/epo", int(e)),
                     ("Misc/it", int(idx)),
                     ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
-                progbar.add(1, values=logs)
+                if e % self.t_config.log_interval == 0:
+                    logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
+                    t_log += logs
+                progbar.add(1, values=t_log)
                 
             self.lr_scheduler.step()
             if e % self.t_config.evaluation_interval == 0:
@@ -245,6 +245,6 @@ class BFeatSkipObjTrainer(BaseTrainer):
             self.wandb_log["Validation/Acc@100/triplet_acc"] = triplet_acc_100
             self.wandb_log["Validation/mRecall@50"] = mean_recall[0]
             self.wandb_log["Validation/mRecall@100"] = mean_recall[1]        
-        return mean_recall[0]
+        return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
     
     

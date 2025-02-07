@@ -6,3 +6,5 @@ python3 -m pip install torch-sparse -f https://pytorch-geometric.com/whl/torch-1
 python3 -m pip install torch-spline-conv -f https://pytorch-geometric.com/whl/torch-1.12.1+cu113.html
 python3 -m pip install torch-geometric==2.2.0
 python3 -m pip install git+https://github.com/openai/CLIP.git
+python3 -m pip install hydra
+python3 -m pip install --upgrade hydra-core
