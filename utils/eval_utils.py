@@ -24,11 +24,11 @@ def get_gt(objs_target, rels_target, edges, multi_rel_outputs):
     return gt_edges
 
 
-def evaluate_topk_object(objs_pred, objs_target, topk):
+def evaluate_topk_object(objs_pred : torch.Tensor, objs_target : torch.Tensor, topk):
     res = []
-    for obj in range(len(objs_pred)):
+    for obj in range(objs_pred.size(0)):
         obj_pred = objs_pred[obj]
-        sorted_idx = torch.sort(obj_pred, descending=True)[1]
+        sorted_idx = torch.argsort(obj_pred, descending=True)
         gt = objs_target[obj]
         index = 1
         for idx in sorted_idx:
