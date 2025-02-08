@@ -160,6 +160,7 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
         s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
         return s_list.tolist()
     
+    @torch.no_grad()
     def __crazy_negative_embedding(self, target_neg_tokens: torch.Tensor):
         """
         Embrace the bullshit.
