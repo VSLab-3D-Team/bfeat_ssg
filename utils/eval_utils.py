@@ -58,7 +58,8 @@ def evaluate_topk_predicate(rels_preds, gt_edges, multi_rel_outputs, topk, confi
             if len(indices) == 0:
                 index = topk + 1
             else:
-                index = sorted(indices)[0].item()+1
+                index = indices[0].item()+1
+                #index = sorted(indices)[0].item()+1
             
             temp_topk.append(index)
 
@@ -178,7 +179,8 @@ def evaluate_triplet_topk(objs_pred, rels_pred, gt_rel, edges, multi_rel_outputs
             if len(indices) == 0:
                 index = topk + 1
             else:
-                index = sorted(indices)[0].item()+1
+                index = indices[0].item()+1
+                #index = sorted(indices)[0].item()+1
             temp_topk.append(index)
             if obj_topk is not None:
                 tmp_triplet.append([sub_gt.cpu(),sub_pred, obj_gt.cpu(), obj_pred, -1])
@@ -191,7 +193,8 @@ def evaluate_triplet_topk(objs_pred, rels_pred, gt_rel, edges, multi_rel_outputs
             if len(indices) == 0:
                 index = topk + 1
             else:
-                index = sorted(indices)[0].item()+1
+                index = indices[0].item()+1
+                #index = sorted(indices)[0].item()+1
             temp_topk.append(index)
             if obj_topk is not None:
                 tmp_triplet.append([sub_gt.cpu(),sub_pred, obj_gt.cpu(), obj_pred, predicate])
