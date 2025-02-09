@@ -73,13 +73,13 @@ class MultiLabelInfoNCELoss(nn.Module):
         sim_ap_exp = torch.exp(sim_ap) # B X M
         sim_an_exp = torch.sum(torch.exp(sim_an), dim=-1) # B X M
         
-        info_nce_mat = -torch.log(sim_ap_exp / (sim_an_exp + sim_ap_exp)) * _mask # B X M
+        info_nce_mat = -torch.log(sim_ap_exp / (sim_an_exp)) * _mask # B X M
         
         # Calculate positive-term wise mean
-        # non_zero_mask = info_nce_mat != 0
-        # sum_non_zero = info_nce_mat.sum(dim=1, keepdim=True)
-        # count_non_zero = non_zero_mask.sum(dim=1, keepdim=True)
-        # mean_non_zero = torch.where(count_non_zero > 0, sum_non_zero / count_non_zero, torch.zeros_like(sum_non_zero).to(self.device))
-        loss = info_nce_mat[info_nce_mat != 0]
+        non_zero_mask = info_nce_mat != 0
+        sum_non_zero = info_nce_mat.sum(dim=1, keepdim=True)
+        count_non_zero = non_zero_mask.sum(dim=1, keepdim=True)
+        mean_non_zero = torch.where(count_non_zero > 0, sum_non_zero / count_non_zero, torch.zeros_like(sum_non_zero).to(self.device))
+        # loss = info_nce_mat[info_nce_mat != 0]
         
-        return torch.mean(loss)
+        return torch.mean(mean_non_zero)
