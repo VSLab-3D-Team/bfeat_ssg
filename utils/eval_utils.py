@@ -201,9 +201,9 @@ def evaluate_triplet_topk(objs_pred, rels_pred, gt_rel, edges, multi_rel_outputs
             else:
                 tmp_triplet.append([sub_gt.cpu(), obj_gt.cpu(), predicate])
             
-            sub_scores.append(sub)
-            obj_scores.append(obj)
-            rel_scores.append(rel_predictions)
+            sub_scores.append(sub.cpu())
+            obj_scores.append(obj.cpu())
+            rel_scores.append(rel_predictions.cpu())
             
    
         temp_topk = sorted(temp_topk)

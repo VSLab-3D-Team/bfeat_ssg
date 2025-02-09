@@ -178,12 +178,12 @@ class BFeatVanillaTrainer(BaseTrainer):
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
-                top_k_obj = evaluate_topk_object(obj_pred.detach().cpu(), gt_obj_label, topk=11)
+                top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
-                top_k_rel = evaluate_topk_predicate(rel_pred.detach().cpu(), gt_edges, self.d_config.multi_rel, topk=6)
+                top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
                 top_k_triplet, cls_matrix, sub_scores, obj_scores, rel_scores = \
                     evaluate_triplet_topk(
-                        obj_pred.detach().cpu(), rel_pred.detach().cpu(), 
+                        obj_pred.detach(), rel_pred.detach(), 
                         gt_edges, edge_indices, self.d_config.multi_rel, 
                         topk=101, use_clip=True, obj_topk=top_k_obj
                     )
