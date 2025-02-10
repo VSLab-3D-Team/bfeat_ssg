@@ -1,5 +1,6 @@
 from runners.trainer import BFeatVanillaTrainer
 from runners.trainer_skip_obj import BFeatSkipObjTrainer
+from runners.trainer_jjam import BFeatJjamTongTrainer
 from hydra import initialize, compose
 import argparse
 
@@ -7,7 +8,7 @@ parser = argparse.ArgumentParser(description="Training BFeat Architecture")
 parser.add_argument("--mode", type=str, default="train", choices=["train", "experiment"], help="Select mode for BFeat (train/evaluation)")
 parser.add_argument("--runners", 
     type=str, default="vanilla", 
-    choices=["vanilla", "skipobj", "fourierfeat"], 
+    choices=["vanilla", "skipobj", "jjamtong"], 
     help="Select running model"
 )
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
@@ -21,6 +22,11 @@ def train(config):
     elif args.runners == "skipobj":
         trainer = BFeatSkipObjTrainer(config, device)
         trainer.train()
+    elif args.runners == "jjamtong":
+        trainer = BFeatJjamTongTrainer(config, device)
+        trainer.train()
+    else:
+        raise NotImplementedError
 
 def experiment(config):
     ## TODO: Implement for various experiments e.g. ScanNet

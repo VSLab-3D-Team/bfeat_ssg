@@ -6,7 +6,8 @@ import numpy as np
 import os
 import trimesh
 import multiprocessing
-
+from glob import glob
+import cv2
 
 lock = multiprocessing.Lock()
 
@@ -200,6 +201,50 @@ def __read_3dssg_scans(args):
         "rel_json": instance["relationship_json"][scan_id]
     }
 
+def __read_3dssg_scans_mv(args):
+    scan_id, instance = args
+    scan_id_no_split = scan_id.rsplit('_',1)[0]
+    map_instance2labelName = instance["objs_json"][scan_id]
+    classNames = instance["className"]
+    path = os.path.join(instance["path_3rscan"], scan_id_no_split)
+    data = load_mesh(path, LABEL_FILE_NAME, instance["use_rgb"], instance["use_normal"])
+    # 
+    
+    ### Get RGB Image
+    all_instance = list(np.unique(data['instances']))
+    nodes_all = list(map_instance2labelName.keys())
+
+    if 0 in all_instance: # remove background
+        all_instance.remove(0)
+    
+    nodes = []
+    for i, instance_id in enumerate(nodes_all):
+        if instance_id in all_instance:
+            nodes.append(instance_id)
+    # obj_2d_feats = np.zeros([num_objects, 512])
+    
+    label_node = []
+    inst_id_rgb = {}
+    for i, instance_id in enumerate(nodes):
+        assert instance_id in all_instance, "invalid instance id"
+        # get node label name
+        instance_name = map_instance2labelName[instance_id]
+        label_node.append(classNames.index(instance_name))
+        ### Load Multi-View Image here
+        ### Data loading process is too slow, 
+        image_path_list = glob(f"{path}/multi_view/clip_instance_{instance_id}_class_{instance_name}_view*_*_*.npy")
+        img_list = [ np.load(_p) for _p in image_path_list ]
+        inst_id_rgb[instance_id] = img_list
+    
+    return {
+        "map_instid_name": map_instance2labelName,
+        "points": data['points'],
+        "mask": data['instances'],
+        "mv_rgb": inst_id_rgb,
+        "rel_json": instance["relationship_json"][scan_id]
+    }
+
+
 def read_scan_data(config, split, device):
     _scan_path = SSG_DATA_PATH
     config = config
@@ -265,4 +310,69 @@ def read_scan_data(config, split, device):
     assert(len(scans) > 0)
     
     return scan_data, relationship_json, objs_json, scans
+
+def read_scan_data_with_rgb(config, split, device):
+    config = config
+    path_3rscan = f"{SSG_DATA_PATH}/3RScan/data/3RScan"
+    path_selection = f"{SSG_DATA_PATH}/3DSSG_subset"
+    use_rgb = True
+    use_normal = True
+    dim_pts = 3
+    if use_rgb:
+        dim_pts += 3
+    if use_normal:
+        dim_pts += 3
+                            
+    data_path = f"{SSG_DATA_PATH}/3DSSG_subset"
+    classNames, relationNames, data, selected_scans = \
+        read_3dssg_annotation(data_path, path_selection, split)
     
+    wobjs, wrels, o_obj_cls, o_rel_cls = compute(classNames, relationNames, data, selected_scans, False)
+    w_cls_obj = torch.from_numpy(np.array(o_obj_cls)).float().to(device)
+    w_cls_rel = torch.from_numpy(np.array(o_rel_cls)).float().to(device)
+    
+    # for single relation output, we set 'None' relationship weight as 1e-3
+    if not config.multi_rel:
+        w_cls_rel[0] = w_cls_rel.max() * 10
+    
+    w_cls_obj = w_cls_obj.sum() / (w_cls_obj + 1) /w_cls_obj.sum()
+    w_cls_rel = w_cls_rel.sum() / (w_cls_rel + 1) /w_cls_rel.sum()
+    w_cls_obj /= w_cls_obj.max()
+    w_cls_rel /= w_cls_rel.max()
+    
+    # print some info
+    print('=== {} classes ==='.format(len(classNames)))
+    for i in range(len(classNames)):
+        print('|{0:>2d} {1:>20s}'.format(i,classNames[i]),end='')
+        if w_cls_obj is not None:
+            print(':{0:>1.3f}|'.format(w_cls_obj[i]),end='')
+        if (i+1) % 2 ==0:
+            print('')
+    print('')
+    print('=== {} relationships ==='.format(len(relationNames)))
+    for i in range(len(relationNames)):
+        print('|{0:>2d} {1:>20s}'.format(i,relationNames[i]),end=' ')
+        if w_cls_rel is not None:
+            print('{0:>1.3f}|'.format(w_cls_rel[i]),end='')
+        if (i+1) % 2 ==0:
+            print('')
+    print('')    
+    
+    relationship_json, objs_json, scans = __read_rel_json(data, selected_scans)
+    # Pre-load entire 3RScan/3DSSG dataset in main memory
+    ## Main memory capacity of experiment environment: 128GB
+    ## Required memory: about 85GB
+    instance_data = {
+        "path_3rscan": path_3rscan,
+        "objs_json": objs_json,
+        "use_rgb": use_rgb,
+        "use_normal": use_normal,
+        "relationship_json": relationship_json,
+        "className": classNames
+    }
+    scan_list = [ (s, instance_data) for s in scans ]
+    scan_data = process_map(__read_3dssg_scans_mv, scan_list, max_workers=12, chunksize=15, mininterval=0.1)
+    print('num of data:',len(scans))
+    assert(len(scans) > 0)
+    
+    return scan_data, relationship_json, objs_json, scans

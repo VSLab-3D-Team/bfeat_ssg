@@ -173,6 +173,7 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
             target_neg_feats.append(self.text_encoder.encode_text(t_tokens).unsqueeze(1))
         return torch.cat(target_neg_feats, dim=1)
     
+    @torch.no_grad()
     def sample(self, objs_target, rels_target, edges):
         """
         Inputs: 
@@ -196,37 +197,36 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
             target_eo = self.obj_label_list[objs_target[idx_eo]]
             target_os = self.obj_label_list[objs_target[idx_os]]
             assert rels_target.ndim == 2
-            with torch.no_grad():
-                if rels_target[edge_index].sum() == 0:
-                    # relationship = 'none'
-                    pos_token = clip.tokenize(f"the {target_eo} and the {target_os} has no relation in the point cloud").to(self.device)
-                    target_pos_token.append(pos_token) # 1 X N_t
-                    # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
-                    
-                    neg_samples = self.__sample_negative_labels(-1)
-                    neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
-                    target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
-                    # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
-                    rel_index.append(edge_index)
-                else:
-                    for i in range(rels_target.shape[-1]):
-                        if rels_target[edge_index][i] == 1:
-                            pos_rel = self.rel_label_list[i]
-                            pos_token = clip.tokenize(f"a point cloud of a {target_eo} {pos_rel} a {target_os}").to(self.device)
-                            target_pos_token.append(pos_token) # 1 X N_t
-                            # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
-                            
-                            neg_samples = self.__sample_negative_labels(i)
-                            neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
-                            target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
-                            # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
-                            rel_index.append(edge_index)
-        
-        with torch.no_grad():
-            p_target_tokens = torch.vstack(target_pos_token).to(self.device) # M X N_t
-            n_target_tokens = torch.vstack(target_neg_token).to(self.device) # M X N_neg X N_t
-            p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
-            n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
+            
+            if rels_target[edge_index].sum() == 0:
+                # relationship = 'none'
+                pos_token = clip.tokenize(f"the {target_eo} and the {target_os} has no relation in the point cloud").to(self.device)
+                target_pos_token.append(pos_token) # 1 X N_t
+                # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
+                
+                neg_samples = self.__sample_negative_labels(-1)
+                neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
+                target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
+                rel_index.append(edge_index)
+            else:
+                for i in range(rels_target.shape[-1]):
+                    if rels_target[edge_index][i] == 1:
+                        pos_rel = self.rel_label_list[i]
+                        pos_token = clip.tokenize(f"a point cloud of a {target_eo} {pos_rel} a {target_os}").to(self.device)
+                        target_pos_token.append(pos_token) # 1 X N_t
+                        # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
+                        
+                        neg_samples = self.__sample_negative_labels(i)
+                        neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
+                        target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                        # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
+                        rel_index.append(edge_index)
+    
+        p_target_tokens = torch.vstack(target_pos_token).to(self.device) # M X N_t
+        n_target_tokens = torch.vstack(target_neg_token).to(self.device) # M X N_neg X N_t
+        p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
+        n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
         return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
 
 class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):

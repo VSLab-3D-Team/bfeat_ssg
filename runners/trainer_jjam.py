@@ -2,9 +2,10 @@ from utils.eval_utils import *
 from utils.logger import Progbar
 from runners.base_trainer import BaseTrainer
 from utils.contrastive_utils import ContrastiveSingleLabelSampler, ContrastiveFreqWeightedSampler
+from utils.model_utils import rotation_matrix
 from model.frontend.relextractor import *
-from model.models.model_vanilla import BFeatVanillaNet
-from model.loss import TripletLoss, MultiLabelInfoNCELoss
+from model.models.model_jjam import BFeatJJamTongNet
+from model.loss import MultiLabelInfoNCELoss, IntraModalBarlowTwinLoss, SupervisedCrossModalInfoNCE, CrossModalInfoNCE
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -12,18 +13,16 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import clip
 import wandb
-from datetime import datetime
-import os
 
-class BFeatVanillaTrainer(BaseTrainer):
+class BFeatJjamTongTrainer(BaseTrainer):
     def __init__(self, config, device):
-        super().__init__(config, device)
+        super().__init__(config, device, multi_view_ssl=True)
         
         # Contrastive positive/negative pair sampler  
         self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         
         # Model Definitions
-        self.model = BFeatVanillaNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
+        self.model = BFeatJJamTongNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
         self.text_encoder, self.text_preprocessor = clip.load("ViT-B/32", device=device)
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(
@@ -43,7 +42,9 @@ class BFeatVanillaTrainer(BaseTrainer):
             raise NotImplementedError
         # Loss function 
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        # self.c_criterion = TripletLoss(margin=0.3)
+        self.intra_criterion = IntraModalBarlowTwinLoss().to(self.device)
+        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
+        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
     
     def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
         batch_mean = torch.sum(gt_rel_cls, dim=(0))
@@ -61,6 +62,33 @@ class BFeatVanillaTrainer(BaseTrainer):
         weight = weight[1:]                
         return weight
     
+    def __data_augmentation(self, points):
+        # random rotate
+        matrix= np.eye(3)
+        matrix[0:3,0:3] = rotation_matrix([0, 0, 1], np.random.uniform(0, 2*np.pi, 1))
+        matrix = torch.from_numpy(matrix).to(self.device).float()
+        
+        centroid = points[:, :3].mean(0)
+        points[:, :3] -= centroid
+        points[:, :3] = points[:, :3] @ matrix.T
+        if self.use_normal:
+            ofset = 3
+            if self.use_rgb:
+                ofset += 3
+            points[:, ofset: 3 + ofset] = points[:, ofset: 3 + ofset] @ matrix.T
+        return points
+    
+    @torch.no_grad()
+    def __get_text_feat(self, gt_obj: torch.Tensor):
+        bsz = gt_obj.shape[0]
+        text_token = []
+        for b in range(bsz):
+            obj_name = self.obj_label_list[gt_obj[b]]
+            text_token.append(clip.tokenize(f"a point cloud of {obj_name}").to(self.device))
+        target_tokens = torch.vstack(text_token).to(self.device)
+        text_feats = self.text_encoder.encode_text(target_tokens)
+        return text_feats
+    
     def train(self):
         
         self.model = self.model.train()
@@ -76,32 +104,54 @@ class BFeatVanillaTrainer(BaseTrainer):
             
             for idx, (
                 obj_pts, 
+                rgb_feats,
                 rel_pts, 
                 descriptor,
                 gt_rel_label,
                 gt_obj_label,
+                zero_mask,
                 edge_indices,
                 batch_ids
             ) in enumerate(loader):
 
                 (
                     obj_pts, 
+                    rgb_feats,
                     rel_pts, 
                     descriptor,
                     gt_rel_label,
                     gt_obj_label,
+                    zero_mask,
                     edge_indices,
                     batch_ids
-                ) = self.to_device(obj_pts, rel_pts, descriptor, gt_rel_label, gt_obj_label, edge_indices, batch_ids)
+                ) = self.to_device(
+                    obj_pts, rgb_feats, rel_pts, 
+                    descriptor, gt_rel_label, gt_obj_label, 
+                    zero_mask, edge_indices, batch_ids
+                )
                 
                 self.optimizer.zero_grad()
-                obj_pts = obj_pts.transpose(2, 1).contiguous()
+                obj_aug_1 = self.__data_augmentation(obj_pts)
+                obj_aug_2 = self.__data_augmentation(obj_pts)
+                obj_pts_data = torch.cat((obj_aug_1, obj_aug_2))
+                obj_pts = obj_pts_data.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+                obj_feats, edge_feats, obj_pred, rel_pred, obj_t1_feats, obj_t2_feats = \
+                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+                
+                # Object Encoder Contrastive loss
+                text_feat = self.__get_text_feat(gt_obj_label)
+                loss_imbt = self.intra_criterion(obj_t1_feats, obj_t2_feats)  
+                loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, gt_obj_label, zero_mask)
+                loss_cm_text = self.cm_text_criterion(obj_feats, text_feat, gt_obj_label)
+                obj_loss = 0.1 * loss_imbt + loss_cm_visual + loss_cm_text
+                
+                # Classifer loss
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label)
                 c_rel_loss = F.binary_cross_entropy(rel_pred, gt_rel_label, weight=rel_weight)
                 
+                # Contrastive loss for Relationship extractor
                 pos_pair, neg_pair, rel_indices = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
                 contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
                 
@@ -178,12 +228,12 @@ class BFeatVanillaTrainer(BaseTrainer):
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
-                top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
+                top_k_obj = evaluate_topk_object(obj_pred.detach().cpu(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
-                top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
+                top_k_rel = evaluate_topk_predicate(rel_pred.detach().cpu(), gt_edges, self.d_config.multi_rel, topk=6)
                 top_k_triplet, cls_matrix, sub_scores, obj_scores, rel_scores = \
                     evaluate_triplet_topk(
-                        obj_pred.detach(), rel_pred.detach(), 
+                        obj_pred.detach().cpu(), rel_pred.detach().cpu(), 
                         gt_edges, edge_indices, self.d_config.multi_rel, 
                         topk=101, use_clip=True, obj_topk=top_k_obj
                     )
@@ -256,11 +306,3 @@ class BFeatVanillaTrainer(BaseTrainer):
             self.wandb_log["Validation/mRecall@100"] = mean_recall[1]        
         return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
     
-
-# print("Obj pts Shape:", obj_pts.shape)
-# print("Rel pts Shape:", rel_pts.shape)
-# print("Obj desc. Shape:", descriptor.shape)
-# print("Rel label Shape:", gt_rel_label.shape)
-# print("Obj label Shape:", gt_obj_label.shape)
-# print("Edge index Shape:", edge_indices.shape)
-# print("Batch idx Shape:", batch_ids.shape)

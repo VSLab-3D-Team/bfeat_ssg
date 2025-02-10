@@ -6,14 +6,14 @@ This code is not used in anywhere for now
 from utils.os_utils import read_3dssg_annotation
 from utils.data_utils import compute, read_labels
 from config.define import *
-from model.frontend.pointnet import PointNetEncoder
-from PIL.Image import Image
+from parse import parse
+import PIL.Image as Image
 import numpy as np
 import trimesh
 import torch
-import json
-import hydra
-import h5py
+import clip
+from glob import glob
+import cv2
 
 def load_mesh(path,label_file,use_rgb,use_normal):
     result=dict()
@@ -39,17 +39,16 @@ def load_mesh(path,label_file,use_rgb,use_normal):
 
 ## Save the encoder vectors from point cloud
 class Preprocessor3RScan(object):
-    def __init__(self, config, split, cpk_path, device):
+    def __init__(self, config, split, device):
         
-        self.config = config
+        self.config = config.dataset
         self.path_3rscan = f"{SSG_DATA_PATH}/3RScan/data/3RScan"
         self.use_rgb = True
         self.use_normal = True
-        self.pc_endoer = PointNetEncoder(device, channel=9).to(device)
-        self.pc_endoer.load_state_dict(torch.load(cpk_path))
-        self.pc_endoer = self.pc_endoer.eval()
+        self.device = device
+        self.encoder, self.preprocessor = clip.load("ViT-B/32", device=device)
         
-        self.data_path = SSG_DATA_PATH
+        self.data_path = f"{SSG_DATA_PATH}/3DSSG_subset"
         self.classNames, self.relationNames, data, selected_scans = \
             read_3dssg_annotation(self.data_path, self.data_path, split)
         
@@ -94,6 +93,9 @@ class Preprocessor3RScan(object):
         if self.use_normal:
             self.dim_pts += 3
     
+    def __len__(self):
+        return len(self.scans)
+    
     def __read_rel_json(self, data, selected_scans:list):
         rel, objs, scans = dict(), dict(), []
 
@@ -123,35 +125,48 @@ class Preprocessor3RScan(object):
 
         return rel, objs, scans
     
-    def __encode_object(self, obj_pcs):
-        
-        pass
-    
-    def __len__(self):
-        return len(self.scans)
-    
-    def preprocess(
-        self, scene_points, obj_masks, num_pts_normalized, 
-        instance_map, rel_json, num_max_edge, padding=0.2
-    ):
-        
-        pass
-    
     def process(self, index):
         scan_id = self.scans[index]
         scan_id_no_split = scan_id.rsplit('_',1)[0]
         map_instance2labelName = self.objs_json[scan_id]
         path = os.path.join(self.path_3rscan, scan_id_no_split)
         data = load_mesh(path, LABEL_FILE_NAME, self.use_rgb, self.use_normal)
+        ### Get RGB Image
+        all_instance = list(np.unique(data['instances']))
+        nodes_all = list(map_instance2labelName.keys())
 
+        if 0 in all_instance: # remove background
+            all_instance.remove(0)
         
-
-
-    
-    def write_compressed(self):
+        nodes = []
+        for i, instance_id in enumerate(nodes_all):
+            if instance_id in all_instance:
+                nodes.append(instance_id)
+        # obj_2d_feats = np.zeros([num_objects, 512])
         
-        pass
-    
+        label_node = []
+        for i, instance_id in enumerate(nodes):
+            assert instance_id in all_instance, "invalid instance id"
+            # get node label name
+            instance_name = map_instance2labelName[instance_id]
+            label_node.append(self.classNames.index(instance_name))
+            ### Load Multi-View Image here
+            ### Data loading process is too slow, 
+            image_path_list = glob(f"{path}/multi_view/instance_{instance_id}_class_{instance_name}_view*_*_*.jpg")
+            for _p in image_path_list:
+                pattern = "instance_{instance_id}_class_{instance_name}_view{v_id}_{iid_num}_{type_id}.jpg"
+                result = parse(pattern, _p.split('/')[-1])
+                v_id = result["v_id"]
+                iid_num = result["iid_num"]
+                type_id = result["type_id"]
+                preprocess_clip_vec = self.preprocessor(
+                    Image.fromarray(cv2.imread(_p)).transpose(Image.ROTATE_270)
+                ).unsqueeze(0).to(self.device)
+                np.save(
+                    f"{path}/multi_view/clip_instance_{instance_id}_class_{instance_name}_view{v_id}_{iid_num}_{type_id}.npy", 
+                    self.encoder.encode_image(preprocess_clip_vec).clone().detach().cpu().numpy()
+                )
+                
     
 class PreprocessorScannet(object):
     def __init__(self):
