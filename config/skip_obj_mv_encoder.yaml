@@ -1,7 +1,6 @@
 dataset:
   num_edge_points: 512
   num_points_reg: 256
-  num_mv_vecs: 5
   use_data_augmentation: true
   multi_rel: true
   num_max_edge: -1
@@ -17,17 +16,16 @@ train:
   evaluation_interval: 10
   save_interval: 20
   batch_size: 64
-  workers: 12
+  workers: 4
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_entire
+  wandb_project: bfeat_sg_skip_obj_mv
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
   meter: average
   scheduler: 'cyclic'
-  num_negative_sample: 9
-  sampler: 'triplet'
-  freq_temperature: 0.3
+  num_negative_sample: 16
+  freq_temperature: 0.4
   loss_temperature: 0.1
   lambda_obj: 0.1
   lambda_rel: 1.0

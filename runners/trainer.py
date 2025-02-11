@@ -1,7 +1,7 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
 from runners.base_trainer import BaseTrainer
-from utils.contrastive_utils import ContrastiveSingleLabelSampler, ContrastiveFreqWeightedSampler
+from utils.contrastive_utils import ContrastiveFreqWeightedSampler, ContrastiveHybridTripletSampler
 from model.frontend.relextractor import *
 from model.models.model_vanilla import BFeatVanillaNet
 from model.loss import TripletLoss, MultiLabelInfoNCELoss
@@ -20,7 +20,10 @@ class BFeatVanillaTrainer(BaseTrainer):
         super().__init__(config, device)
         
         # Contrastive positive/negative pair sampler  
-        self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
+        if self.t_config.sampler == "triplet":
+            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
+        else:
+            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         
         # Model Definitions
         self.model = BFeatVanillaNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
