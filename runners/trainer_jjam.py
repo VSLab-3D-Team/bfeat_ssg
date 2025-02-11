@@ -18,6 +18,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device, multi_view_ssl=True)
         
+        self.m_config = config.model
         # Contrastive positive/negative pair sampler  
         self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         
@@ -46,6 +47,13 @@ class BFeatJjamTongTrainer(BaseTrainer):
         self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
         self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
     
+        # Add trace meters
+        self.add_meters([
+            "Train/IMBT_Obj_Loss",  # Intra-Modal Object point cloud contrastive loss
+            "Train/CM_Visual_Loss", # Cross-Modal 3D-2D contrastive loss
+            "Train/CM_Text_Loss"    # Cross-Modal 3D-Text contrastive loss
+        ])
+    
     def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
         batch_mean = torch.sum(gt_rel_cls, dim=(0))
         zeros = (gt_rel_cls.sum(-1) ==0).sum().unsqueeze(0)
@@ -62,20 +70,26 @@ class BFeatJjamTongTrainer(BaseTrainer):
         weight = weight[1:]                
         return weight
     
-    def __data_augmentation(self, points):
+    def __data_augmentation(
+        self, 
+        points: torch.Tensor # Shape: B X N_pts X N_dim
+    ):
         # random rotate
         matrix= np.eye(3)
         matrix[0:3,0:3] = rotation_matrix([0, 0, 1], np.random.uniform(0, 2*np.pi, 1))
         matrix = torch.from_numpy(matrix).to(self.device).float()
         
-        centroid = points[:, :3].mean(0)
-        points[:, :3] -= centroid
-        points[:, :3] = points[:, :3] @ matrix.T
-        if self.use_normal:
+        _, N, _ = points.shape
+        centroid = points[:, :, :3].mean(1)
+        points[:, :, :3] -= centroid.unsqueeze(1).repeat(1, N, 1)
+        points_rot = torch.einsum('bnc,ca->bna', points[..., :3], matrix.T)
+        points[...,:3] = points_rot
+        if self.m_config.use_normal:
             ofset = 3
-            if self.use_rgb:
+            if self.m_config.use_rgb:
                 ofset += 3
-            points[:, ofset: 3 + ofset] = points[:, ofset: 3 + ofset] @ matrix.T
+            points_rot_feat = torch.einsum('bnc,ca->bna', points[..., ofset: 3 + ofset], matrix.T)
+            points[..., ofset: 3 + ofset] = points_rot_feat
         return points
     
     @torch.no_grad()
@@ -86,7 +100,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
             obj_name = self.obj_label_list[gt_obj[b]]
             text_token.append(clip.tokenize(f"a point cloud of {obj_name}").to(self.device))
         target_tokens = torch.vstack(text_token).to(self.device)
-        text_feats = self.text_encoder.encode_text(target_tokens)
+        text_feats = self.text_encoder.encode_text(target_tokens).float()
         return text_feats
     
     def train(self):
@@ -133,7 +147,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
                 self.optimizer.zero_grad()
                 obj_aug_1 = self.__data_augmentation(obj_pts)
                 obj_aug_2 = self.__data_augmentation(obj_pts)
-                obj_pts_data = torch.cat((obj_aug_1, obj_aug_2))
+                obj_pts_data = torch.cat([ obj_aug_1, obj_aug_2 ], dim=0)
                 obj_pts = obj_pts_data.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 obj_feats, edge_feats, obj_pred, rel_pred, obj_t1_feats, obj_t2_feats = \
@@ -159,19 +173,25 @@ class BFeatJjamTongTrainer(BaseTrainer):
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
                 lambda_c = self.t_config.lambda_con # 0.1
+                lambda_oc = self.t_config.lambda_obj_con
                 t_loss = lambda_o * c_obj_loss \
                     + lambda_r * c_rel_loss \
-                    + lambda_c * contrastive_loss
+                    + lambda_c * contrastive_loss \
+                    + lambda_oc * obj_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
                 self.meters['Train/Obj_Cls_Loss'].update(c_obj_loss.detach().item())
                 self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
                 self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
+                self.meters['Train/IMBT_Obj_Loss'].update(loss_imbt.detach().item()) 
+                self.meters['Train/CM_Visual_Loss'].update(loss_cm_visual.detach().item()) 
+                self.meters['Train/CM_Text_Loss'].update(loss_cm_text.detach().item()) 
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
                     ("train/contrastive_loss", contrastive_loss.detach().item()),
+                    ("train/obj_feat_loss", obj_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
                     ("Misc/epo", int(e)),
                     ("Misc/it", int(idx)),
@@ -206,34 +226,45 @@ class BFeatJjamTongTrainer(BaseTrainer):
         
         with torch.no_grad():
             self.model = self.model.eval()
-            for i, (
+            for idx, (
                 obj_pts, 
+                rgb_feats,
                 rel_pts, 
                 descriptor,
                 gt_rel_label,
                 gt_obj_label,
+                zero_mask,
                 edge_indices,
                 batch_ids
             ) in enumerate(loader):
+
                 (
                     obj_pts, 
+                    rgb_feats,
                     rel_pts, 
                     descriptor,
                     gt_rel_label,
                     gt_obj_label,
+                    zero_mask,
                     edge_indices,
                     batch_ids
-                ) = self.to_device(obj_pts, rel_pts, descriptor, gt_rel_label, gt_obj_label, edge_indices, batch_ids)
+                ) = self.to_device(
+                    obj_pts, rgb_feats, rel_pts, 
+                    descriptor, gt_rel_label, gt_obj_label, 
+                    zero_mask, edge_indices, batch_ids
+                )
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
-                top_k_obj = evaluate_topk_object(obj_pred.detach().cpu(), gt_obj_label, topk=11)
+                obj_pred, rel_pred= \
+                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, is_train=False)
+                
+                top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
-                top_k_rel = evaluate_topk_predicate(rel_pred.detach().cpu(), gt_edges, self.d_config.multi_rel, topk=6)
+                top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
                 top_k_triplet, cls_matrix, sub_scores, obj_scores, rel_scores = \
                     evaluate_triplet_topk(
-                        obj_pred.detach().cpu(), rel_pred.detach().cpu(), 
+                        obj_pred.detach(), rel_pred.detach(), 
                         gt_edges, edge_indices, self.d_config.multi_rel, 
                         topk=101, use_clip=True, obj_topk=top_k_obj
                     )

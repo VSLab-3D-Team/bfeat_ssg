@@ -19,7 +19,7 @@ train:
   batch_size: 64
   workers: 12
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_entire
+  wandb_project: bfeat_sg_jjamtong
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
@@ -31,6 +31,7 @@ train:
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_con: 1.0
+  lambda_obj_con: 1.0
 
 model:
   num_graph_update: 2

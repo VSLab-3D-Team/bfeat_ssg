@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List
 from dataset.dataloader import CustomDataLoader, collate_fn_bfeat, collate_fn_bfeat_mv
 from dataset import build_dataset, build_dataset_multi_view
-from utils.logger import build_meters
+from utils.logger import build_meters, AverageMeter
 from utils.eval_utils import *
 import numpy as np
 import torch
@@ -45,13 +45,13 @@ class BaseTrainer(ABC):
                 self.d_config, 
                 split="train_scans", 
                 device=device, 
-                d_feats=self.t_config.dim_obj_feats
+                d_feats=self.config.model.dim_obj_feats
             )
             self.v_dataset = build_dataset_multi_view(
                 self.d_config, 
                 split="validation_scans", 
                 device=device, 
-                d_feats=self.t_config.dim_obj_feats
+                d_feats=self.config.model.dim_obj_feats
             )
             self.t_dataloader = CustomDataLoader(
                 self.d_config, 
@@ -106,6 +106,10 @@ class BaseTrainer(ABC):
     def to_device(self, *tensors) -> List[torch.Tensor]:
         c_tensor = [ t.to(self.device) for t in tensors ]
         return c_tensor
+    
+    def add_meters(self, names):
+        for m_name in names:
+            self.meters[m_name] = AverageMeter(m_name)
     
     @abstractmethod
     def train(self):

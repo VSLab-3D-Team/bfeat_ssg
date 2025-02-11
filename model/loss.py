@@ -119,11 +119,12 @@ class SupervisedCrossModalInfoNCE(nn.Module):
         # z_c: 
         #   - B X K X N_feat if Image 
         #   - B X N_feat     if Text
-        # gt_label: B X C
+        # gt_label: B X 1
         # mask: B X K \in {0, 1}
         B = z_p.shape[0]
         z_p = F.normalize(z_p, dim=-1)
         z_c = F.normalize(z_c, dim=-1)
+        labels = labels.unsqueeze(1)
         positive_mask = (labels == labels.T).float().to(self.device)
         negative_mask = (~(labels == labels.T)).float().to(self.device)
         
