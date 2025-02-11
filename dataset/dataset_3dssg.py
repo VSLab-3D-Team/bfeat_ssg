@@ -424,6 +424,6 @@ class SSGLWBFeat3DwMultiModal(Dataset):
         
         while(len(rel_pts) == 0 or gt_rels.sum()==0) and self.for_train:
             index = np.random.randint(self.__len__())
-            obj_pts, obj_mv_feats, rel_pts, descriptor, gt_rels, gt_class, edge_indices, obj_zero_mask = self.__getitem__(index)
+            obj_pts, obj_mv_feats, rel_pts, descriptor, gt_rels, gt_class, obj_zero_mask, edge_indices = self.__getitem__(index)
         
         return obj_pts, obj_mv_feats, rel_pts, descriptor, gt_rels, gt_class, obj_zero_mask, edge_indices
