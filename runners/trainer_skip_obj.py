@@ -69,7 +69,6 @@ class BFeatSkipObjTrainer(BaseTrainer):
         # Training Loop
         for e in range(self.t_config.epoch):
             self.wandb_log = {}
-            self.reset_meters()
             progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/epo', 'Misc/it'])
             self.model = self.model.train()
             loader = iter(self.t_dataloader)
