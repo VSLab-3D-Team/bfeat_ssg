@@ -1,10 +1,10 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
-from utils.contrastive_utils import ContrastiveSingleLabelSampler
+from utils.contrastive_utils import ContrastiveFreqWeightedSampler, ContrastiveHybridTripletSampler
 from runners.base_trainer import BaseTrainer
 from model.frontend.relextractor import *
 from model.models.model_skip_obj import BFeatSkipObjNet
-from model.loss import TripletLoss, ContrastiveLoss, MultiLabelInfoNCELoss
+from model.loss import MultiLabelInfoNCELoss
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -17,24 +17,33 @@ class BFeatSkipObjTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device)
         
-        self.contrastive_sampler = ContrastiveSingleLabelSampler(config, device)
+        # Contrastive positive/negative pair sampler  
+        if self.t_config.sampler == "triplet":
+            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
+        else:
+            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         # Model Definitions
         self.model = BFeatSkipObjNet(self.config, self.num_obj_class, self.num_rel_class, device)
-        self.text_encoder, self.text_preprocessor = clip.load("ViT-B/32", device=device)
+        
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(
             self.model.parameters(), 
             lr=self.opt_config.learning_rate, 
             weight_decay=self.opt_config.weight_decay
         )
-        self.lr_scheduler = CyclicLR(
-            self.optimizer, base_lr=self.opt_config.learning_rate / 10, 
-            step_size_up=10, max_lr=self.opt_config.learning_rate * 5, 
-            gamma=0.8, mode='exp_range', cycle_momentum=False
-        )
-        # CosineAnnealingLR(self.optimizer, T_max=self.t_config.epoch, eta_min=0, last_epoch=-1)
+        if self.t_config.scheduler == "consine":
+            self.lr_scheduler = CosineAnnealingLR(self.optimizer, T_max=self.t_config.epoch, eta_min=0, last_epoch=-1)
+        elif self.t_config.scheduler == 'cyclic':
+            self.lr_scheduler = CyclicLR(
+                self.optimizer, base_lr=self.opt_config.learning_rate / 10, 
+                step_size_up=self.t_config.epoch, max_lr=self.opt_config.learning_rate * 5, 
+                gamma=0.8, mode='exp_range', cycle_momentum=False
+            )
+        else:
+            raise NotImplementedError
         # Loss function 
-        self.c_criterion = TripletLoss(margin=0.1)
+        self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
+        # self.c_criterion = TripletLoss(margin=0.3)
     
     def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
         batch_mean = torch.sum(gt_rel_cls, dim=(0))
@@ -93,8 +102,8 @@ class BFeatSkipObjTrainer(BaseTrainer):
                 c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label)
                 c_rel_loss = F.binary_cross_entropy(rel_pred, gt_rel_label, weight=rel_weight)
                 
-                pos_pair, neg_pair = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
-                contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair)
+                pos_pair, neg_pair, rel_indices = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
+                contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
                 
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1

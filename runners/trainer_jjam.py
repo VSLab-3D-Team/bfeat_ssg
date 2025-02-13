@@ -24,7 +24,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
         
         # Model Definitions
         self.model = BFeatJJamTongNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
-        self.text_encoder, self.text_preprocessor = clip.load("ViT-B/32", device=device)
+        
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(
             self.model.parameters(), 

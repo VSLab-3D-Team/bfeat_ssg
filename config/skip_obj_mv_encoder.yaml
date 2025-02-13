@@ -9,7 +9,7 @@ dataset:
   seed: 2025
 
 train:
-  ckp_path: ./model_checkpoints/pc_encoder_vl.pth
+  ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
   name: GAT
   epoch: 1000
   log_interval: 5
@@ -24,8 +24,9 @@ train:
   verbose: true
   meter: average
   scheduler: 'cyclic'
-  num_negative_sample: 16
-  freq_temperature: 0.4
+  num_negative_sample: 9
+  sampler: 'triplet'
+  freq_temperature: 0.3
   loss_temperature: 0.1
   lambda_obj: 0.1
   lambda_rel: 1.0

@@ -3,6 +3,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from model.models.baseline import BaseNetwork
 
+## TODO: Zero-Shot classifier
+@torch.no_grad()
+def consine_classification(
+    cls_matrix: torch.Tensor, # C X N_feat
+    obj_feat: torch.Tensor   # B X N_feat
+):
+    # cls_matrix = F.normalize(cls_matrix, dim=-1)
+    # obj_feat = F.normalize(obj_feat, dim=-1)
+    sim_matrix = torch.mm(obj_feat, cls_matrix.T) # B X C
+    # obj_pred = (sim_matrix + 1) * 0.5
+    obj_pred = F.softmax(sim_matrix, dim=1)
+    return obj_pred
+
 class ObjectClsMulti(BaseNetwork):
     def __init__(self, k, in_size, batch_norm=True, drop_out=True, init_weights=True):
         super(ObjectClsMulti, self).__init__()

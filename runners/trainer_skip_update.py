@@ -20,7 +20,7 @@ class BFeatSkipObjUpdateTrainer(BaseTrainer):
         self.contrastive_sampler = ContrastiveSingleLabelSampler(config, device)
         # Model Definitions
         self.model = BFeatSkipObjUpdateNet(self.config, self.num_obj_class, self.num_rel_class, device)
-        self.text_encoder, self.text_preprocessor = clip.load("ViT-B/32", device=device)
+        
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(
             self.model.parameters(), 

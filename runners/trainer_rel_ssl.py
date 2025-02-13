@@ -13,6 +13,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 import clip
 import wandb
 
+## TODO: Relationship Feature Extractor Contrastive learning only
 class BFeatRelSSLTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device)
@@ -20,7 +21,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
         self.contrastive_sampler = ContrastiveSingleLabelSampler(config, device)
         # Model Definitions
         self.model = BFeatSkipObjNet(self.config, self.num_obj_class, self.num_rel_class, device)
-        self.text_encoder, self.text_preprocessor = clip.load("ViT-B/32", device=device)
+        
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(
             self.model.parameters(), 

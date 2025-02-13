@@ -16,7 +16,7 @@ train:
   log_interval: 5
   evaluation_interval: 10
   save_interval: 20
-  batch_size: 32
+  batch_size: 64
   workers: 12
   wandb_path: ./wandb
   wandb_project: bfeat_sg_entire_mv
@@ -25,7 +25,7 @@ train:
   verbose: true
   meter: average
   scheduler: 'cyclic'
-  num_negative_sample: 6
+  num_negative_sample: 9
   sampler: 'triplet'
   freq_temperature: 0.3
   loss_temperature: 0.1

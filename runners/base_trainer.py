@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import wandb
+import clip
 from datetime import datetime
 import os
 
@@ -78,7 +79,10 @@ class BaseTrainer(ABC):
         self.num_rel_class = len(self.v_dataset.relationNames)
         self.obj_label_list = self.t_dataset.classNames
         self.rel_label_list = self.t_dataset.relationNames
-    
+
+        # Model Definition for encoder
+        self.text_encoder, self.preprocessor = clip.load("ViT-B/32", device=device)
+        self.text_encoder = self.text_encoder.eval()
         self.model: nn.Module | None = None
     
         # Wandb & Logger
@@ -91,6 +95,12 @@ class BaseTrainer(ABC):
         # Average & Max Meter
         self.meters = build_meters(self.t_config.meter)
     
+    # Get text emebedding matrix for zero-shot classifier of closed-vocabulary
+    @torch.no_grad()
+    def build_text_classifier(self):
+        obj_tokens = torch.cat([ clip.tokenize(f"A point cloud of a {obj}") for obj in self.obj_label_list ], dim=0).to(self.device)
+        self.text_gt_matrix = self.text_encoder.encode_text(obj_tokens) # N_obj_cls X N_feat
+        
     def reset_meters(self):
         for k in list(self.meters.keys()):
             self.meters[k].reset()
