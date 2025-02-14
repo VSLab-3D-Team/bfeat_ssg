@@ -211,6 +211,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
             triplet_acc_100 = (topk_triplet_list <= 100).sum() * 100 / len(topk_triplet_list)
             
             rel_acc_mean_1, rel_acc_mean_3, rel_acc_mean_5 = self.compute_mean_predicate(cls_matrix_list, topk_rel_list)
+            self.compute_predicate_acc_per_class(cls_matrix_list, topk_rel_list)
             logs += [
                 ("Acc@1/obj_cls_acc", obj_acc_1),
                 ("Acc@5/obj_cls_acc", obj_acc_5),

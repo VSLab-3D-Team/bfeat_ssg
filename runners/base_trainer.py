@@ -188,7 +188,6 @@ class BaseTrainer(ABC):
         predicate_mean_1 = np.mean(predicate_mean_1)
         predicate_mean_3 = np.mean(predicate_mean_3)
         predicate_mean_5 = np.mean(predicate_mean_5)
-
         return predicate_mean_1 * 100, predicate_mean_3 * 100, predicate_mean_5 * 100
     
     def draw_graph(self,predicate_mean, topk_index):
