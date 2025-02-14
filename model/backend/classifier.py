@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from model.models.baseline import BaseNetwork
+from einops import rearrange
+from tqdm import tqdm
+import clip
 
 ## TODO: Zero-Shot classifier
 @torch.no_grad()
@@ -16,10 +19,66 @@ def consine_classification_obj(
     obj_pred = F.softmax(sim_matrix, dim=1)
     return obj_pred
 
-def cosine_classification_rel(edge_feat, obj_pred, edge_indices, relation_cls, object_cls):
+class RelCosineClassifier():
+    def __init__(self, relation_cls, object_cls, device, d_feats):
+        self.object_cls = object_cls
+        self.relation_cls = relation_cls
+        self.device = device
+        self.encoder, _ = clip.load("ViT-B/32", device=device)
+        N_emb_mat = len(self.object_cls)
+        self.embedding_vector_loader = torch.zeros(
+            (N_emb_mat, N_emb_mat, len(relation_cls), d_feats
+        ), dtype=torch.float32).to(device)
+        self.__build_embedding_storage()
     
+    @torch.no_grad()
+    def __crazy_negative_embedding(self, token_vecs: torch.Tensor):
+        """
+        Embrace the bullshit.
+        GPU is too expensive.
+        FXXK YOU NVIDIA
+        """
+        target_feats = []
+        for n_i in range(len(self.relation_cls)):
+            t_tokens = token_vecs[:, n_i, :] # N_obj_cls X N_token
+            target_feats.append(self.encoder.encode_text(t_tokens).float().unsqueeze(1))
+        return torch.cat(target_feats, dim=1) # N_obj_cls X N_rel_cls X N_token
     
-    return
+    @torch.no_grad()
+    def __build_embedding_storage(self):
+        for i, k_s in tqdm(enumerate(self.object_cls)):
+            rel_text_prompt = []
+            for _, k_o in enumerate(self.object_cls):
+                prompt_ij = clip.tokenize(
+                    [ f"a point cloud of a {k_s} {x} a {k_o}" for x in self.relation_cls ]
+                ).to(self.device)
+                rel_text_prompt.append(prompt_ij.unsqueeze(0))
+            rel_prompt_batch = torch.vstack(rel_text_prompt) # N_obj_cls X N_rel_cls X N_token
+            rel_feat_cls = self.__crazy_negative_embedding(rel_prompt_batch)
+            self.embedding_vector_loader[i, ...] = rel_feat_cls.clone()
+
+    @torch.no_grad()
+    def __call__(self, 
+        edge_feat: torch.Tensor, # B_e X N_feat
+        obj_pred: torch.Tensor, # B_o X N_feat
+        edge_indices: torch.Tensor, # B_e X 2
+    ):
+        assert edge_feat.ndim == 2
+        obj_pred_cls = torch.argmax(obj_pred, dim=1) # B_o X 1
+        rel_text_feat = [] # B_e X N_rel_cls X N_feat
+        for idx in range(len(edge_indices)):
+            idx_eo = edge_indices[idx][0]
+            idx_os = edge_indices[idx][1]
+            sub_index = obj_pred_cls[idx_eo].int().item()
+            obj_index = obj_pred_cls[idx_os].int().item()
+            cls_mat = self.embedding_vector_loader[sub_index, obj_index, ...]
+            rel_text_feat.append(cls_mat.unsqueeze(0)) # 1 X N_rel_cls X N_feat
+        rel_feat_cls = torch.vstack(rel_text_feat) # B_e X N_rel_cls X N_feat
+        
+        edge_feat = F.normalize(edge_feat, dim=-1)
+        rel_feat_cls = F.normalize(rel_feat_cls, dim=-1)
+        edge_pred = torch.einsum('bn,bcn->bc', edge_feat, rel_feat_cls)
+        return edge_pred # B_e X N_rel_cls
 
 class ObjectClsMulti(BaseNetwork):
     def __init__(self, k, in_size, batch_norm=True, drop_out=True, init_weights=True):

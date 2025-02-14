@@ -26,6 +26,7 @@ train:
   meter: average
   scheduler: 'cyclic'
   num_negative_sample: 8
+  sampler: 'frequency'
   freq_temperature: 0.3
   loss_temperature: 0.1
   lambda_obj: 0.1

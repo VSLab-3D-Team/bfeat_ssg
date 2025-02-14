@@ -261,7 +261,6 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
     
     def __sample_neg_predicate(self, anchor_idx):
         if not anchor_idx == -1: # If anchor is not none
-            f_temperature = self.t_config.freq_temperature
             sample_dist = self.prob_rel_sample.clone()
             sample_dist[anchor_idx] = 0.
             sample_dist = sample_dist / sample_dist.sum()

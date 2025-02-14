@@ -99,7 +99,7 @@ class BaseTrainer(ABC):
     @torch.no_grad()
     def build_text_classifier(self):
         obj_tokens = torch.cat([ clip.tokenize(f"A point cloud of a {obj}") for obj in self.obj_label_list ], dim=0).to(self.device)
-        self.text_gt_matrix = self.text_encoder.encode_text(obj_tokens) # N_obj_cls X N_feat
+        self.text_gt_matrix = self.text_encoder.encode_text(obj_tokens).float() # N_obj_cls X N_feat
         
     def reset_meters(self):
         for k in list(self.meters.keys()):
