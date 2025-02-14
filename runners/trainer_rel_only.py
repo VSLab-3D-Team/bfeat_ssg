@@ -169,7 +169,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_pred = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
+                edge_feats, obj_pred = self.model(obj_pts, edge_indices.t().contiguous(), descriptor)
                 rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                 
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
