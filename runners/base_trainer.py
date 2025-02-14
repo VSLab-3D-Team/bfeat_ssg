@@ -195,20 +195,39 @@ class BaseTrainer(ABC):
         for i in range(26):
             cls_dict[i] = []
         
+        total_cnt=0
         for idx, j in enumerate(cls_matrix_list):
             if j[-1] != -1:
                 cls_dict[j[-1]].append(topk_pred_list[idx])
+                total_cnt+=1
         
         predicate_mean = []
+        acc_freq=1
         for i in range(26):
             l = len(cls_dict[i])
             if l > 0:
                 m_1 = (np.array(cls_dict[i]) <= 1).sum() / len(cls_dict[i])
                 m_3 = (np.array(cls_dict[i]) <= 3).sum() / len(cls_dict[i])
                 m_5 = (np.array(cls_dict[i]) <= 5).sum() / len(cls_dict[i])
-                predicate_mean.append([m_1,m_3,m_5])
+                
+                cls=self.rel_label_list[i]
+                freq=len(cls_dict[i])/total_cnt
+                predicate_mean.append([cls,acc_freq,[m_1,m_3,m_5]])
+                acc_freq-=freq
+        predicate_mean.sort(key=lambda x: x[1],reverse=True)
 
-        return predicate_mean
+        table1 = wandb.Table(columns=["Class", "Frequency", "mAcc@1"])
+        table2 = wandb.Table(columns=["Class", "Frequency", "mAcc@3"])
+        table3 = wandb.Table(columns=["Class", "Frequency", "mAcc@5"])
+
+        for cls, freq, m_list in predicate_mean:
+            table1.add_data(cls, freq, m_list[0])
+            table2.add_data(cls, freq, m_list[1])
+            table3.add_data(cls, freq, m_list[2])
+        
+        self.wandb_log["Validation/Acc@1/rel_acc_per_cls"]=table1
+        self.wandb_log["Validation/Acc@3/rel_acc_per_cls"]=table2
+        self.wandb_log["Validation/Acc@5/rel_acc_per_cls"]=table3
         
     def save_checkpoint(self, exp_name, file_name):
         save_file = os.path.join(f'checkpoints/{exp_name}/models/', file_name)
