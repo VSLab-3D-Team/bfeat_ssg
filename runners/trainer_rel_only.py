@@ -18,7 +18,7 @@ import clip
 ## TODO: Relationship Feature Extractor Contrastive learning only
 class BFeatRelOnlyContrasTrainer(BaseTrainer):
     def __init__(self, config, device):
-        super().__init__(config, device, multi_view_ssl=True)
+        super().__init__(config, device)
         
         self.m_config = config.model
         # Contrastive positive/negative pair sampler  

@@ -158,7 +158,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
                 contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
                 
                 # TODO: determine coefficient for each loss
-                lambda_c = self.t_config.lambda_con # 0.1
+                lambda_c = self.t_config.lambda_con
                 lambda_oc = self.t_config.lambda_obj_con
                 t_loss = lambda_c * contrastive_loss + \
                     lambda_oc * obj_loss

@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser(description="Training BFeat Architecture")
 parser.add_argument("--mode", type=str, default="train", choices=["train", "experiment"], help="Select mode for BFeat (train/evaluation)")
 parser.add_argument("--runners", 
     type=str, default="vanilla", 
-    choices=["vanilla", "skipobj", "jjamtong", "con_jjamtong"], 
+    choices=["vanilla", "skipobj", "jjamtong", "con_jjamtong", "con_relonly"], 
     help="Select running model"
 )
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
@@ -26,6 +26,8 @@ def train(config):
         trainer = BFeatJjamTongTrainer(config, device)
     elif args.runners == "con_jjamtong":
         trainer = BFeatRelSSLTrainer(config, device)
+    elif args.runners == "con_relonly":
+        trainer = BFeatRelOnlyContrasTrainer(config, device)
     else:
         raise NotImplementedError
     trainer.train()

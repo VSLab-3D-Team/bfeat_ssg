@@ -55,7 +55,7 @@ class BFeatRelObjConNet(BaseNetwork):
         geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
         edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
                 
-        obj_pred = consine_classification_obj(self.obj_gt_feat_mat, obj_feats)
+        obj_pred = consine_classification_obj(self.obj_gt_feat_mat, obj_feats.clone().detach())
         
         if is_train:
             return obj_feats, edge_feats, obj_pred, obj_t1_feats, obj_t2_feats
