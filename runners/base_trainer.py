@@ -122,6 +122,11 @@ class BaseTrainer(ABC):
         for m_name in names:
             self.meters[m_name] = AverageMeter(m_name)
     
+    def del_meters(self, names):
+        for m_name in names:
+            if m_name in self.meters:
+                del self.meters[m_name]
+    
     @abstractmethod
     def train(self):
         """
