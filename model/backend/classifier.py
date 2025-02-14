@@ -5,7 +5,7 @@ from model.models.baseline import BaseNetwork
 
 ## TODO: Zero-Shot classifier
 @torch.no_grad()
-def consine_classification(
+def consine_classification_obj(
     cls_matrix: torch.Tensor, # C X N_feat
     obj_feat: torch.Tensor   # B X N_feat
 ):
@@ -15,6 +15,11 @@ def consine_classification(
     # obj_pred = (sim_matrix + 1) * 0.5
     obj_pred = F.softmax(sim_matrix, dim=1)
     return obj_pred
+
+def cosine_classification_rel(edge_feat, obj_pred, edge_indices, relation_cls, object_cls):
+    
+    
+    return
 
 class ObjectClsMulti(BaseNetwork):
     def __init__(self, k, in_size, batch_norm=True, drop_out=True, init_weights=True):

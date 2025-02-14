@@ -1,5 +1,5 @@
 from model.frontend.pointnet import PointNetEncoder
-from model.backend.gat import BFeatSkipObjUpdateGAT
+from model.backend.gat import BFeatVanillaGAT
 from model.frontend.relextractor import *
 from model.backend.classifier import RelationClsMulti, ObjectClsMulti
 from model.models.baseline import BaseNetwork
@@ -8,9 +8,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class BFeatSkipObjUpdateNet(BaseNetwork):
+class BFeatRelOnlyNet(BaseNetwork):
     def __init__(self, config, n_obj_cls, n_rel_cls, device):
-        super(BFeatSkipObjUpdateNet, self).__init__()
+        super(BFeatRelOnlyNet, self).__init__()
         self.config = config
         self.t_config = config.train
         self.m_config = config.model
@@ -32,7 +32,7 @@ class BFeatSkipObjUpdateNet(BaseNetwork):
             self.m_config.dim_edge_feats
         ).to(self.device)
         
-        self.gat = BFeatSkipObjUpdateGAT(
+        self.gat = BFeatVanillaGAT(
             self.m_config.dim_obj_feats,
             self.m_config.dim_edge_feats,
             self.m_config.dim_attn,
@@ -60,14 +60,9 @@ class BFeatSkipObjUpdateNet(BaseNetwork):
         x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
         geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
         edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
-        
-        obj_center = descriptor[:, :3].clone()
-        _, edge_gnn_feats = self.gat(
-            obj_feats, edge_feats, edge_indices, batch_ids, obj_center
-        )
-        
+                
         obj_pred = self.obj_classifier(obj_feats)
-        rel_pred = self.rel_classifier(edge_gnn_feats)
+        rel_pred = self.rel_classifier(edge_feats)
         
         return edge_feats, obj_pred, rel_pred
         

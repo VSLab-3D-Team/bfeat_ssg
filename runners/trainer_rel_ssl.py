@@ -1,16 +1,15 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
-from utils.contrastive_utils import ContrastiveSingleLabelSampler
+from utils.contrastive_utils import ContrastiveFreqWeightedSampler, ContrastiveHybridTripletSampler
 from runners.base_trainer import BaseTrainer
 from model.frontend.relextractor import *
 from model.models.model_skip_obj import BFeatSkipObjNet
-from model.loss import TripletLoss, ContrastiveLoss
+from model.loss import MultiLabelInfoNCELoss
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
-import clip
 import wandb
 
 ## TODO: Relationship Feature Extractor Contrastive learning only
@@ -18,7 +17,11 @@ class BFeatRelSSLTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device)
         
-        self.contrastive_sampler = ContrastiveSingleLabelSampler(config, device)
+        # Contrastive positive/negative pair sampler  
+        if self.t_config.sampler == "triplet":
+            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
+        else:
+            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         # Model Definitions
         self.model = BFeatSkipObjNet(self.config, self.num_obj_class, self.num_rel_class, device)
         
@@ -30,7 +33,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
         )
         self.lr_scheduler = CosineAnnealingLR(self.optimizer, T_max=self.t_config.epoch, eta_min=0, last_epoch=-1)
         # Loss function 
-        self.c_criterion = TripletLoss(margin=0.1)
+        self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
     
     def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
         batch_mean = torch.sum(gt_rel_cls, dim=(0))
