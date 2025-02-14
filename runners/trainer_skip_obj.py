@@ -44,6 +44,10 @@ class BFeatSkipObjTrainer(BaseTrainer):
         # Loss function 
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
         # self.c_criterion = TripletLoss(margin=0.3)
+        
+        # Resume training if ckp path is provided.
+        if 'resume' in self.config:
+            self.resume_from_checkpoint(self.config.resume)
     
     def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
         batch_mean = torch.sum(gt_rel_cls, dim=(0))

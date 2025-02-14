@@ -64,6 +64,10 @@ class BFeatRelSSLTrainer(BaseTrainer):
             "Train/CM_Visual_Loss", # Cross-Modal 3D-2D contrastive loss
             "Train/CM_Text_Loss"    # Cross-Modal 3D-Text contrastive loss
         ])
+        
+        # Resume training if ckp path is provided.
+        if 'resume' in self.config:
+            self.resume_from_checkpoint(self.config.resume)
     
     def __data_augmentation(
         self, 

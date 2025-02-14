@@ -53,7 +53,11 @@ class BFeatJjamTongTrainer(BaseTrainer):
             "Train/CM_Visual_Loss", # Cross-Modal 3D-2D contrastive loss
             "Train/CM_Text_Loss"    # Cross-Modal 3D-Text contrastive loss
         ])
-    
+        
+        # Resume training if ckp path is provided.
+        if 'resume' in self.config:
+            self.resume_from_checkpoint(self.config.resume)
+        
     def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
         batch_mean = torch.sum(gt_rel_cls, dim=(0))
         zeros = (gt_rel_cls.sum(-1) ==0).sum().unsqueeze(0)

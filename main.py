@@ -13,6 +13,7 @@ parser.add_argument("--runners",
     help="Select running model"
 )
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
+parser.add_argument("--resume", type=str, help="Resume training from checkpoint")
 args = parser.parse_args()
 
 def train(config):
@@ -37,7 +38,8 @@ def experiment(config):
 if __name__ == "__main__":
     # mp.set_start_method("spawn", force=True)
     with initialize(config_path="./config"):
-        config = compose(config_name=args.config)
+        override_list = [] if not args.resume else [f"+resume={args.resume}"]
+        config = compose(config_name=args.config, overrides=override_list)
     
     runtime_mode = args.mode
     if runtime_mode == "train":

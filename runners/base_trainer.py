@@ -193,3 +193,6 @@ class BaseTrainer(ABC):
     def save_checkpoint(self, exp_name, file_name):
         save_file = os.path.join(f'checkpoints/{exp_name}/models/', file_name)
         torch.save(self.model.state_dict(), save_file)
+    
+    def resume_from_checkpoint(self, ckp_path):
+        self.model.load_state_dict(torch.load(ckp_path))
