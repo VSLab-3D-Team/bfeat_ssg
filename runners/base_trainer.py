@@ -224,7 +224,6 @@ class BaseTrainer(ABC):
                 total_cnt+=1
         
         predicate_mean = []
-        acc_freq=total_cnt
         for i in range(26):
             l = len(cls_dict[i])
             if l > 0:
@@ -236,9 +235,8 @@ class BaseTrainer(ABC):
                 freq=len(cls_dict[i])
                 predicate_mean.append([cls,freq,[m_1,m_3,m_5]])
         predicate_mean.sort(key=lambda x: x[1],reverse=True)
-        max_freq=predicate_mean[0][1]
         for i in range(len(predicate_mean)):
-            predicate_mean[i][1]/=max_freq
+            predicate_mean[i][1]
         
         fig1=self.draw_graph(predicate_mean,0)
         fig2=self.draw_graph(predicate_mean,1)
