@@ -189,6 +189,26 @@ class BaseTrainer(ABC):
         predicate_mean_5 = np.mean(predicate_mean_5)
 
         return predicate_mean_1 * 100, predicate_mean_3 * 100, predicate_mean_5 * 100
+    
+    def compute_predicate_acc_per_class(self, cls_matrix_list, topk_pred_list):
+        cls_dict = {}
+        for i in range(26):
+            cls_dict[i] = []
+        
+        for idx, j in enumerate(cls_matrix_list):
+            if j[-1] != -1:
+                cls_dict[j[-1]].append(topk_pred_list[idx])
+        
+        predicate_mean = []
+        for i in range(26):
+            l = len(cls_dict[i])
+            if l > 0:
+                m_1 = (np.array(cls_dict[i]) <= 1).sum() / len(cls_dict[i])
+                m_3 = (np.array(cls_dict[i]) <= 3).sum() / len(cls_dict[i])
+                m_5 = (np.array(cls_dict[i]) <= 5).sum() / len(cls_dict[i])
+                predicate_mean.append([m_1,m_3,m_5])
+
+        return predicate_mean
         
     def save_checkpoint(self, exp_name, file_name):
         save_file = os.path.join(f'checkpoints/{exp_name}/models/', file_name)
