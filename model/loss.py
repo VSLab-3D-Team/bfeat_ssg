@@ -113,7 +113,7 @@ class ContrastiveSafeLoss(nn.Module):
         sim_ap = torch.matmul(anchor, positive.T) / self.temperature  # B x M
         sim_an = torch.einsum('nd,mkd->nmk', anchor, negative) / self.temperature  # B x M x 16
         
-        sim_an_sum = torch.sum((sim_an + 1) * 0.5, dim=1) # B X M
+        sim_an_sum = torch.sum((sim_an + 1) * 0.5, dim=-1) # B X M
         con_loss = ((1. - sim_ap) + sim_an_sum) * _mask
         
         # Calculate positive-term wise mean
