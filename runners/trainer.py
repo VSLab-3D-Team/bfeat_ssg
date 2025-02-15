@@ -4,7 +4,7 @@ from runners.base_trainer import BaseTrainer
 from utils.contrastive_utils import ContrastiveFreqWeightedSampler, ContrastiveHybridTripletSampler
 from model.frontend.relextractor import *
 from model.models.model_vanilla import BFeatVanillaNet
-from model.loss import TripletLoss, MultiLabelInfoNCELoss
+from model.loss import MultiLabelInfoNCELoss, ContrastiveSafeLoss
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -39,7 +39,7 @@ class BFeatVanillaTrainer(BaseTrainer):
         else:
             raise NotImplementedError
         # Loss function 
-        self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
+        self.c_criterion = ContrastiveSafeLoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
         
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
