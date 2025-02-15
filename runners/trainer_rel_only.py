@@ -21,11 +21,6 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
         super().__init__(config, device)
         
         self.m_config = config.model
-        # Contrastive positive/negative pair sampler  
-        if self.t_config.sampler == "triplet":
-            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
-        else:
-            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         # Model Definitions
         self.build_text_classifier()
         self.model = BFeatRelOnlyNet(self.config, self.text_gt_matrix, device, num_layers=9).to(device)
@@ -54,9 +49,6 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
             raise NotImplementedError
         # Loss function 
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        self.intra_criterion = IntraModalBarlowTwinLoss().to(self.device)
-        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
-        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
         
         # Remove trace meters
         self.del_meters([

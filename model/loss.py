@@ -65,6 +65,7 @@ class MultiLabelInfoNCELoss(nn.Module):
         ## Masking the Multi-labeled predicate mask
         B, M = anchor.shape[0], rel_index.shape[0]
         _mask = torch.zeros((B, M), dtype=torch.float32).to(self.device)
+        assert rel_index.max() < _mask.size(0), "Index out of bounds!"
         _mask.scatter_(0, rel_index.to(torch.int64).reshape(-1).unsqueeze(0), 1.0)
         
         sim_ap = torch.matmul(anchor, positive.T) / self.temperature  # B x M
@@ -76,11 +77,10 @@ class MultiLabelInfoNCELoss(nn.Module):
         info_nce_mat = -torch.log(sim_ap_exp / (sim_an_exp)) * _mask # B X M
         
         # Calculate positive-term wise mean
-        # non_zero_mask = info_nce_mat != 0
-        # sum_non_zero = info_nce_mat.sum(dim=1, keepdim=True)
-        # count_non_zero = non_zero_mask.sum(dim=1, keepdim=True)
-        # mean_non_zero = torch.where(count_non_zero > 0, sum_non_zero / count_non_zero, torch.zeros_like(sum_non_zero).to(self.device))
-        loss = info_nce_mat[info_nce_mat != 0]
+        sum_non_zero = info_nce_mat.sum(dim=1, keepdim=True)
+        count_non_zero = (info_nce_mat != 0).sum(dim=1, keepdim=True).clamp(1.0)
+        loss = sum_non_zero / count_non_zero
+        # loss = info_nce_mat[info_nce_mat != 0]
         return torch.mean(loss)
 
 

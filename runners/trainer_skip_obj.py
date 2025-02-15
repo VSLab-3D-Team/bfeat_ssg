@@ -17,11 +17,6 @@ class BFeatSkipObjTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device)
         
-        # Contrastive positive/negative pair sampler  
-        if self.t_config.sampler == "triplet":
-            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
-        else:
-            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         # Model Definitions
         self.model = BFeatSkipObjNet(self.config, self.num_obj_class, self.num_rel_class, device)
         

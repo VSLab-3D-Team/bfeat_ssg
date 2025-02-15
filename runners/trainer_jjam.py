@@ -19,9 +19,6 @@ class BFeatJjamTongTrainer(BaseTrainer):
         super().__init__(config, device, multi_view_ssl=True)
         
         self.m_config = config.model
-        # Contrastive positive/negative pair sampler  
-        self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
-        
         # Model Definitions
         self.model = BFeatJJamTongNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
         

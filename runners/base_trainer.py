@@ -3,6 +3,7 @@ from typing import List
 from dataset.dataloader import CustomDataLoader, collate_fn_bfeat, collate_fn_bfeat_mv
 from dataset import build_dataset, build_dataset_multi_view
 from utils.logger import build_meters, AverageMeter
+from utils.contrastive_utils import *
 from utils.eval_utils import *
 import numpy as np
 import torch
@@ -95,7 +96,17 @@ class BaseTrainer(ABC):
         
         # Average & Max Meter
         self.meters = build_meters(self.t_config.meter)
-    
+        
+         # Contrastive positive/negative pair sampler  
+        if self.t_config.sampler == "hybrid":
+            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
+        elif self.t_config.sampler == "triplet":
+            self.contrastive_sampler = ContrastiveTripletSampler(config, device)
+        elif self.t_config.sampler == "frequency":
+            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
+        else:
+            raise NotImplementedError
+        
     # Get text emebedding matrix for zero-shot classifier of closed-vocabulary
     @torch.no_grad()
     def build_text_classifier(self):

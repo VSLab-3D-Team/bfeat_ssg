@@ -21,11 +21,6 @@ class BFeatRelSSLTrainer(BaseTrainer):
         super().__init__(config, device, multi_view_ssl=True)
         
         self.m_config = config.model
-        # Contrastive positive/negative pair sampler  
-        if self.t_config.sampler == "triplet":
-            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
-        else:
-            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
         # Model Definitions
         self.build_text_classifier()
         self.model = BFeatRelObjConNet(self.config, self.text_gt_matrix, device, num_layers=9).to(device)
