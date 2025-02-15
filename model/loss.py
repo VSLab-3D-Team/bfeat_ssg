@@ -110,8 +110,8 @@ class ContrastiveSafeLoss(nn.Module):
         assert rel_index.max() < _mask.size(0), "Index out of bounds!"
         _mask.scatter_(0, rel_index.to(torch.int64).reshape(-1).unsqueeze(0), 1.0)
         
-        sim_ap = torch.matmul(anchor, positive.T) / self.temperature  # B x M
-        sim_an = torch.einsum('nd,mkd->nmk', anchor, negative) / self.temperature  # B x M x 16
+        sim_ap = torch.matmul(anchor, positive.T)  # B x M
+        sim_an = torch.einsum('nd,mkd->nmk', anchor, negative)  # B x M x 16
         
         sim_an_sum = torch.sum((sim_an + 1) * 0.5, dim=-1) # B X M
         con_loss = ((1. - sim_ap) + sim_an_sum) * _mask
