@@ -40,7 +40,6 @@ class BFeatVanillaTrainer(BaseTrainer):
             raise NotImplementedError
         # Loss function 
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        # self.c_criterion = TripletLoss(margin=0.3)
         
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
