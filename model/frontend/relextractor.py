@@ -2,29 +2,47 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class ResidualLinearNet(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super(ResidualLinearNet, self).__init__()
-    
-    def forward(self, x_i, x_j):
-        pass
+class ResidualBlock(nn.Module):
+    def __init__(self, dim):
+        super(ResidualBlock, self).__init__()
+        self.fc1 = nn.Linear(dim, dim)
+        self.bn1 = nn.BatchNorm1d(dim)
+        self.fc2 = nn.Linear(dim, dim)
+        self.bn2 = nn.BatchNorm1d(dim)
+        self.activation = nn.ReLU()
+
+    def forward(self, x):
+        residual = x  # Skip Connection
+        out = self.fc1(x)
+        out = self.bn1(out)
+        out = self.activation(out)
+        out = self.fc2(out)
+        out = self.bn2(out)
+        out += residual  # Add Skip Connection
+        out = self.activation(out)
+        return out
 
 class RelFeatNaiveExtractor(nn.Module):
-    def __init__(self, input_dim, geo_dim, out_dim):
+    def __init__(self, input_dim, geo_dim, out_dim, num_layers=6):
         super(RelFeatNaiveExtractor, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim * 2 + geo_dim, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.BatchNorm1d(1024),
-            nn.Linear(1024, out_dim),
-            nn.ReLU(),
-        )
+        self.obj_proj = nn.Linear(input_dim, 512)
+        self.geo_proj = nn.Linear(geo_dim, 512)
+        self.merge_layer = nn.Conv1d(in_channels=3, out_channels=1, kernel_size=5, stride=1, padding="same")
+        
+        self.res_blocks = nn.Sequential(*[ResidualBlock(512) for _ in range(num_layers)])
+        self.fc_out = nn.Linear(512, out_dim)  # 출력 레이어
+        
 
-    def forward(self, x_i, x_j, geo_feats):
-        x = torch.cat((x_i, x_j, geo_feats), dim=-1)
-        return self.fc(x)
+    def forward(self, x_i: torch.Tensor, x_j: torch.Tensor, geo_feats: torch.Tensor):
+        # All B X N_feat size
+        p_i, p_j, g_ij = self.obj_proj(x_i), self.obj_proj(x_j), self.geo_proj(geo_feats)
+        m_ij = torch.cat([
+            p_i.unsqueeze(1), p_j.unsqueeze(1), g_ij.unsqueeze(1)
+        ], dim=1)
+        
+        e_ij = self.merge_layer(m_ij).squeeze(1) # B X 512
+        r_ij = self.res_blocks(e_ij)
+        return self.fc_out(r_ij)
 
 class RelFeatCrossExtractor(nn.Module):
     def __init__(self, dim_obj_feats, dim_geo_feats, dim_out_feats):

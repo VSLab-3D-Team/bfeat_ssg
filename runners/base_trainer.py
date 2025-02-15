@@ -3,11 +3,13 @@ from typing import List
 from dataset.dataloader import CustomDataLoader, collate_fn_bfeat, collate_fn_bfeat_mv
 from dataset import build_dataset, build_dataset_multi_view
 from utils.logger import build_meters, AverageMeter
+from utils.contrastive_utils import *
 from utils.eval_utils import *
 import numpy as np
 import torch
 import torch.nn as nn
 import wandb
+import matplotlib.pyplot as plt
 import clip
 from datetime import datetime
 import os
@@ -94,12 +96,22 @@ class BaseTrainer(ABC):
         
         # Average & Max Meter
         self.meters = build_meters(self.t_config.meter)
-    
+        
+         # Contrastive positive/negative pair sampler  
+        if self.t_config.sampler == "hybrid":
+            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
+        elif self.t_config.sampler == "triplet":
+            self.contrastive_sampler = ContrastiveTripletSampler(config, device)
+        elif self.t_config.sampler == "frequency":
+            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
+        else:
+            raise NotImplementedError
+        
     # Get text emebedding matrix for zero-shot classifier of closed-vocabulary
     @torch.no_grad()
     def build_text_classifier(self):
         obj_tokens = torch.cat([ clip.tokenize(f"A point cloud of a {obj}") for obj in self.obj_label_list ], dim=0).to(self.device)
-        self.text_gt_matrix = self.text_encoder.encode_text(obj_tokens) # N_obj_cls X N_feat
+        self.text_gt_matrix = self.text_encoder.encode_text(obj_tokens).float() # N_obj_cls X N_feat
         
     def reset_meters(self):
         for k in list(self.meters.keys()):
@@ -120,6 +132,11 @@ class BaseTrainer(ABC):
     def add_meters(self, names):
         for m_name in names:
             self.meters[m_name] = AverageMeter(m_name)
+    
+    def del_meters(self, names):
+        for m_name in names:
+            if m_name in self.meters:
+                del self.meters[m_name]
     
     @abstractmethod
     def train(self):
@@ -187,9 +204,67 @@ class BaseTrainer(ABC):
         predicate_mean_1 = np.mean(predicate_mean_1)
         predicate_mean_3 = np.mean(predicate_mean_3)
         predicate_mean_5 = np.mean(predicate_mean_5)
-
         return predicate_mean_1 * 100, predicate_mean_3 * 100, predicate_mean_5 * 100
+    
+    def draw_graph(self,predicate_mean, topk_index):
+        fig, ax1 = plt.subplots(figsize=(13,10))
+
+        ax1.set_xlabel("Class")
+        ax1.set_ylabel("Frequency", color="blue")
+        ax1.plot([predicate_mean[i][0] for i in range(len(predicate_mean))], [predicate_mean[i][1] for i in range(len(predicate_mean))], marker="o", linestyle="-", color="blue", label="Frequency")
+        ax1.tick_params(axis="y", labelcolor="blue")
+        ax1.tick_params(axis="x", rotation=90)
+        
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("Acc", color="orange")
+        ax2.bar([predicate_mean[i][0] for i in range(len(predicate_mean))], [predicate_mean[i][2][topk_index] for i in range(len(predicate_mean))], alpha=0.6, color="orange", label="Acc")
+        ax2.tick_params(axis="y", labelcolor="orange")
+        
+        fig.tight_layout()
+        # 그래프 제목
+        tmp=[1,3,5]
+        fig.suptitle(f"rel_acc_per_cls@{tmp[topk_index]}")
+        plt.subplots_adjust(top=0.85)
+
+        return fig
+    
+    def compute_predicate_acc_per_class(self, cls_matrix_list, topk_pred_list):
+        cls_dict = {}
+        for i in range(26):
+            cls_dict[i] = []
+        
+        total_cnt=0
+        for idx, j in enumerate(cls_matrix_list):
+            if j[-1] != -1:
+                cls_dict[j[-1]].append(topk_pred_list[idx])
+                total_cnt+=1
+        
+        predicate_mean = []
+        for i in range(26):
+            l = len(cls_dict[i])
+            if l > 0:
+                m_1 = (np.array(cls_dict[i]) <= 1).sum() / len(cls_dict[i])
+                m_3 = (np.array(cls_dict[i]) <= 3).sum() / len(cls_dict[i])
+                m_5 = (np.array(cls_dict[i]) <= 5).sum() / len(cls_dict[i])
+                
+                cls=self.rel_label_list[i]
+                freq=len(cls_dict[i])
+                predicate_mean.append([cls,freq,[m_1,m_3,m_5]])
+        predicate_mean.sort(key=lambda x: x[1],reverse=True)
+        for i in range(len(predicate_mean)):
+            predicate_mean[i][1]
+        
+        fig1=self.draw_graph(predicate_mean,0)
+        fig2=self.draw_graph(predicate_mean,1)
+        fig3=self.draw_graph(predicate_mean,2)
+        self.wandb_log["rel_acc_per_cls"]=[wandb.Image(fig1),wandb.Image(fig2),wandb.Image(fig3)]
+        plt.close(fig1)
+        plt.close(fig2)
+        plt.close(fig3)
         
     def save_checkpoint(self, exp_name, file_name):
         save_file = os.path.join(f'checkpoints/{exp_name}/models/', file_name)
         torch.save(self.model.state_dict(), save_file)
+    
+    def resume_from_checkpoint(self, ckp_path):
+        self.model.load_state_dict(torch.load(ckp_path))

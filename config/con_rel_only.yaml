@@ -10,7 +10,7 @@ dataset:
   seed: 2025
 
 train:
-  ckp_path: ./model_checkpoints/pc_encoder_vl.pth
+  ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
   name: GAT
   epoch: 1000
   log_interval: 5
@@ -19,19 +19,20 @@ train:
   batch_size: 64
   workers: 12
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_entire
+  wandb_project: bfeat_sg_con_rel_only
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
   meter: average
   scheduler: 'cyclic'
-  num_negative_sample: 9
-  sampler: 'triplet'
+  num_negative_sample: 8
+  sampler: 'frequency'
   freq_temperature: 0.3
   loss_temperature: 0.1
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_con: 1.0
+  lambda_obj_con: 1.0
 
 model:
   num_graph_update: 2

@@ -19,9 +19,6 @@ class BFeatJjamTongTrainer(BaseTrainer):
         super().__init__(config, device, multi_view_ssl=True)
         
         self.m_config = config.model
-        # Contrastive positive/negative pair sampler  
-        self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
-        
         # Model Definitions
         self.model = BFeatJJamTongNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
         
@@ -53,7 +50,11 @@ class BFeatJjamTongTrainer(BaseTrainer):
             "Train/CM_Visual_Loss", # Cross-Modal 3D-2D contrastive loss
             "Train/CM_Text_Loss"    # Cross-Modal 3D-Text contrastive loss
         ])
-    
+        
+        # Resume training if ckp path is provided.
+        if 'resume' in self.config:
+            self.resume_from_checkpoint(self.config.resume)
+        
     def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
         batch_mean = torch.sum(gt_rel_cls, dim=(0))
         zeros = (gt_rel_cls.sum(-1) ==0).sum().unsqueeze(0)
@@ -307,6 +308,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
             triplet_acc_100 = (topk_triplet_list <= 100).sum() * 100 / len(topk_triplet_list)
             
             rel_acc_mean_1, rel_acc_mean_3, rel_acc_mean_5 = self.compute_mean_predicate(cls_matrix_list, topk_rel_list)
+            self.compute_predicate_acc_per_class(cls_matrix_list, topk_rel_list)
             logs += [
                 ("Acc@1/obj_cls_acc", obj_acc_1),
                 ("Acc@5/obj_cls_acc", obj_acc_5),
