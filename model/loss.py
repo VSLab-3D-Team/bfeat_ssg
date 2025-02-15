@@ -85,7 +85,7 @@ class MultiLabelInfoNCELoss(nn.Module):
 
 class ContrastiveSafeLoss(nn.Module):
     def __init__(self, device, temperature=0.07):
-        super(MultiLabelInfoNCELoss, self).__init__()
+        super(ContrastiveSafeLoss, self).__init__()
         self.device = device
         self.temperature = temperature
     
