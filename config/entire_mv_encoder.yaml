@@ -25,7 +25,7 @@ train:
   verbose: true
   meter: average
   scheduler: 'cyclic'
-  num_negative_sample: 9
+  num_negative_sample: 8
   sampler: 'frequency'
   freq_temperature: 0.3
   loss_temperature: 0.1
