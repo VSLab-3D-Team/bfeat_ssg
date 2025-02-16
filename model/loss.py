@@ -83,6 +83,44 @@ class MultiLabelInfoNCELoss(nn.Module):
         # loss = info_nce_mat[info_nce_mat != 0]
         return torch.mean(loss)
 
+class ContrastiveSafeLoss(nn.Module):
+    def __init__(self, device, temperature=0.07):
+        super(ContrastiveSafeLoss, self).__init__()
+        self.device = device
+        self.temperature = temperature
+    
+    def forward(
+        self, 
+        anchor: torch.Tensor, 
+        positive: torch.Tensor, 
+        negative: torch.Tensor, 
+        rel_index: torch.Tensor
+    ):
+        # anchor: B X N_feat
+        # positive: M X N_feat
+        # negative: M X N_neg X N_feat
+        # rel_index: M X 1 \in [0, N-1]
+        anchor = F.normalize(anchor, dim=-1)
+        positive = F.normalize(positive, dim=-1)
+        negative = F.normalize(negative, dim=-1)
+        
+        ## Masking the Multi-labeled predicate mask
+        B, M = anchor.shape[0], rel_index.shape[0]
+        _mask = torch.zeros((B, M), dtype=torch.float32).to(self.device)
+        assert rel_index.max() < _mask.size(0), "Index out of bounds!"
+        _mask.scatter_(0, rel_index.to(torch.int64).reshape(-1).unsqueeze(0), 1.0)
+        
+        sim_ap = torch.matmul(anchor, positive.T)  # B x M
+        sim_an = torch.einsum('nd,mkd->nmk', anchor, negative)  # B x M x 16
+        
+        sim_an_sum = torch.sum((sim_an + 1) * 0.5, dim=-1) # B X M
+        con_loss = ((1. - sim_ap) + sim_an_sum) * _mask
+        
+        # Calculate positive-term wise mean
+        sum_non_zero = con_loss.sum(dim=1, keepdim=True)
+        count_non_zero = (con_loss != 0).sum(dim=1, keepdim=True).clamp(1.0)
+        loss = sum_non_zero / count_non_zero
+        return torch.mean(loss)
 
 class SupervisedCrossModalInfoNCE(nn.Module):
     def __init__(self, device, temperature=0.07):
