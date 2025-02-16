@@ -580,10 +580,14 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
             target_obj_list = obj_sorted_idx[idx_obj] # N_obj_class
             target_sub_list = obj_sorted_idx[idx_sub] # N_obj_class
             
+            cnt=0
             for i,j in idx_list:
                 if (target_obj_list[i]!=gt_obj) and (target_obj_list[j]!=gt_sub):
                     target_eo.append(target_obj_list[i])
                     target_os.append(target_sub_list[i])
+                    cnt+=1
+                if cnt>=num_samples:
+                    break
             target_rel = rels_target[edge_index]
             
             neg_edges.append((target_eo, target_os, target_rel))
@@ -600,24 +604,23 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
         Outputs:
         None
         """
-        pred_edges = self.__get_neg(obj_pred, rel_pred, edges, gt_edges, num_samples) # E X ([sub,...], [obj,..], [pred,])
+        neg_edges = self.__get_neg(obj_pred, rel_pred, edges, gt_edges, num_samples) # E X ([sub,...], [obj,..], [pred,])
         for edge_index in range(len(gt_edges)):
             sub_target_idx = gt_edges[edge_index][0] # 1
             pred_target_idx_list = gt_edges[edge_index][2] # N_gt_pred
             obj_traget_idx = gt_edges[edge_index][1] # 1
             
-            sub_neg_idx_list = pred_edges[edge_index][0] # N_add_sample
-            pred_neg_idx_list = pred_edges[edge_index][2] # N_gt_pred
-            obj_neg_idx_list = pred_edges[edge_index][1] # N_add_sample
+            sub_neg_idx_list = neg_edges[edge_index][0] # N_add_sample
+            pred_neg_idx_list = neg_edges[edge_index][2] # N_gt_pred
+            obj_neg_idx_list = neg_edges[edge_index][1] # N_add_sample
             assert len(sub_neg_idx_list)==len(obj_neg_idx_list)
             
             for pred_idx in range(len(pred_target_idx_list)):
                 target_triplet=(sub_target_idx, pred_target_idx_list[pred_idx], obj_traget_idx)
-                for pred_neg_idx in range(len(pred_neg_idx_list[pred_idx])):
-                    for obj_neg_idx in range(len(obj_neg_idx_list)):
-                        neg_triplet=(sub_neg_idx_list[obj_neg_idx], pred_target_idx_list[pred_idx][pred_neg_idx], obj_neg_idx_list[obj_neg_idx])
-                        self.replay_buffer.Put_Sample(target_triplet,neg_triplet)
-    
+                for obj_neg_idx in range(len(obj_neg_idx_list)):
+                    neg_triplet=(sub_neg_idx_list[obj_neg_idx], pred_target_idx_list[pred_idx], obj_neg_idx_list[obj_neg_idx])
+                    self.replay_buffer.Put_Sample(target_triplet,neg_triplet)
+
     @torch.no_grad()
     def sample(self, objs_target, rels_target, edges):
         """
