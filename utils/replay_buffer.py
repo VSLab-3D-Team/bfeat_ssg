@@ -78,6 +78,18 @@ class Replay_Buffer:
         if self._size > self.buffer_size:
             self._Remove_sample()
     
+    def Get_Sample_length(self,anchor_triplet):
+        anchor_key=self._Convert_triplet_to_key(anchor_triplet)
+        if anchor_key not in self.cache:
+            return 0
+        
+        if self.type=="SET":
+            return len(self.cache[anchor_key])
+        elif self.type=="LIST":
+            return len(self.cache[anchor_key])
+        elif self.type=="SINGLE":
+            return 1
+    
     def Get_Sample(self,anchor_triplet):
         anchor_key=self._Convert_triplet_to_key(anchor_triplet)
         if anchor_key not in self.cache:
@@ -179,8 +191,15 @@ def test2():
 ## SINGLE의경우 665600으로 크기가 제한되어 버퍼사이즈와 상관없이 결국 수렴
 ## LIST와 SET의 메모리는 2배정도 차이남
 ## 현재 key, value는 int 기준(28B) 문자열을 키로 삼으면 더 커질 수 있음 (대략 2배 정도=49+10*3) => 실제 order_dict
+
+
 def test3():
     from pympler import asizeof
+    import string
+    
+    def random_string(length=10):
+        chars = string.ascii_letters + string.digits  # 영문 대소문자 + 숫자
+        return ''.join(random.choices(chars, k=length))
     
     buffer_size=1E6
     triplet_num=160*160*26 # triplet 조합의 수
@@ -189,15 +208,23 @@ def test3():
     Buffer=Replay_Buffer(buffer_size,"LIST",True)
     print("\n\ntest code\n\n")
     print("pp")
-    key_list=   [random.randint(0, triplet_num) for _ in range(triplet_per_epoch)]
-    value_list= [random.randint(0, triplet_num) for _ in range(triplet_per_epoch)]
+    string_key=False
+    if string_key:
+        key_list=   [(random_string(10),random_string(10),random_string(10)) for _ in range(triplet_per_epoch)]
+        value_list= [(random_string(10),random_string(10),random_string(10)) for _ in range(triplet_per_epoch)]
+    else:
+        key_list=   [random.randint(0, triplet_num) for _ in range(triplet_per_epoch)]
+        value_list= [random.randint(0, triplet_num) for _ in range(triplet_per_epoch)]
     type_list=  [random.randint(0, 2) for _ in range(triplet_per_epoch)]
     print("start_test")
     print(f"empty {Buffer.type} size : { asizeof.asizeof(Buffer)}")
     for step in range(epoch):
         for i in range(triplet_per_epoch):
             if type_list[i]!=2:
-                Buffer.Put_Sample((key_list[i]+step)%triplet_num,(value_list[i]+step)%triplet_num)
+                if string_key:
+                    Buffer.Put_Sample(key_list[i%triplet_per_epoch],value_list[(i+step)%triplet_per_epoch])
+                else:    
+                    Buffer.Put_Sample((key_list[i]+step)%triplet_num,(value_list[i]+step)%triplet_num)
             else:
                 continue
                 Buffer.Get_Sample((key_list[i]+step)%triplet_num)

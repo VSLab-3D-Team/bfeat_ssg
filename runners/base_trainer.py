@@ -104,6 +104,8 @@ class BaseTrainer(ABC):
             self.contrastive_sampler = ContrastiveTripletSampler(config, device)
         elif self.t_config.sampler == "frequency":
             self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
+        elif self.t_config.sampler == "ReplayBuffer":
+            self.contrastive_sampler = ContrastiveReplayBufferSampler(config,device)
         else:
             raise NotImplementedError
         
@@ -163,6 +165,10 @@ class BaseTrainer(ABC):
         top_k_obj = evaluate_topk_object(obj_logits.detach(), gt_obj_cls, topk=11)
         gt_edges = get_gt(gt_obj_cls, gt_rel_cls, edge_indices, self.d_config.multi_rel)
         top_k_rel = evaluate_topk_predicate(rel_logits.detach(), gt_edges, self.d_config.multi_rel, topk=6)
+        
+        if self.t_config.sampler == "ReplayBuffer":
+            self.contrastive_sampler.Add_sample_to_buffer(self, obj_logits, rel_logits, edge_indices, gt_edges, 8)
+        
         obj_topk_list = [100 * (top_k_obj <= i).sum() / len(top_k_obj) for i in [1, 5, 10]]
         rel_topk_list = [100 * (top_k_rel <= i).sum() / len(top_k_rel) for i in [1, 3, 5]]
         self.meters["Train/Obj_R1"].update(obj_topk_list[0])

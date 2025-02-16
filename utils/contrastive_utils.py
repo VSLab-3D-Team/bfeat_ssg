@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from config.define import *
 from utils.os_utils import read_txt_to_list
 from utils.data_utils import compute
+from utils.replay_buffer import Replay_Buffer
 from operator import itemgetter
 from einops import rearrange
 import torch.nn.functional as F
@@ -490,4 +491,185 @@ class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
         p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
         n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
         return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
+
+class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
+    """
+    Naive negative sampler w. frequency weighted multinomial distriubuton w replaybuffer
+    wo/ hard negative sampling (hard-negative sampling with same category)
+    It can make unseen triplets as negative samples
+    """
+    def __init__(self, config, device):
+        super().__init__(config, device)
+        self.t_config = config.train
+        data_path = f"{SSG_DATA_PATH}/3DSSG_subset"
+        path_selection = f"{SSG_DATA_PATH}/3DSSG_subset"
+        selected_scans = set()
+        selected_scans = selected_scans.union(read_txt_to_list(os.path.join(path_selection,'train_scans.txt')))
+        with open(os.path.join(data_path, 'relationships_train.json'), "r") as read_file:
+            data = json.load(read_file)
+        self.w_cls_obj, self.w_cls_rel = compute_frequnecy_weight(
+            self.obj_label_list, 
+            self.rel_label_list, 
+            data, selected_scans, 
+            self.d_config.multi_rel, device
+        )
+        self.__make_freq_prob_dist()
+        
+        self.replay_buffer=Replay_Buffer(1000000, "SET", True)
+        
+    def __make_freq_prob_dist(self):
+        f_temperature = self.t_config.freq_temperature
+        self.prob_obj_sample = F.softmax(self.w_cls_obj / f_temperature, dim=0)
+        self.prob_rel_sample = F.softmax(self.w_cls_rel / f_temperature, dim=0)
     
+    def __sample_negative_labels(self, sub_anchor_idx, pred_anchor_idx, obj_anchor_idx):
+        neg_samples=[]
+        buffer_neg_labels=[]
+        num_buffer_sample=0
+        
+        sample_dist = self.prob_rel_sample.clone()
+        if not pred_anchor_idx == -1: # If anchor is not none
+            sample_dist[pred_anchor_idx] = 0.
+            sample_dist = sample_dist / sample_dist.sum()
+            
+            num_buffer_sample=min(self.replay_buffer.Get_Sample_length((sub_anchor_idx,pred_anchor_idx,obj_anchor_idx)),self.num_neg_samples)
+            buffer_neg_labels = [self.replay_buffer.Get_Sample((sub_anchor_idx,pred_anchor_idx,obj_anchor_idx)) for _ in range(num_buffer_sample)]
+            
+        sample_indices = torch.multinomial(sample_dist, self.num_neg_samples-num_buffer_sample, replacement=False)
+        s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
+        s_list.tolist()
+        s_list=[(sub_anchor_idx, pred_neg_idx, obj_anchor_idx) for pred_neg_idx in s_list]
+        
+        neg_samples=[
+            *s_list,
+            *buffer_neg_labels
+        ]
+        return neg_samples
+        
+    @torch.no_grad()
+    def __crazy_negative_embedding(self, target_neg_tokens: torch.Tensor):
+        """
+        Embrace the bullshit.
+        GPU is too expensive.
+        FXXK YOU NVIDIA
+        """
+        target_neg_feats = []
+        for n_i in range(self.num_neg_samples):
+            t_tokens = target_neg_tokens[:, n_i, :] # M X N_feat
+            target_neg_feats.append(self.text_encoder.encode_text(t_tokens).unsqueeze(1))
+        return torch.cat(target_neg_feats, dim=1)
+    
+    def __get_neg(self, objs_target, rels_target, edges, gt_edges, num_samples):
+        #현재는 각 obj와 sub의 두개 모두 예측이 실패한 경우를 neg sample로 삼는다
+        #예측 자체는 성공하더라도 정답 triplet을 제외하고 가장 가능성 높게나온 triplet 케이스를 샘플로 삼는다.
+        #일단은 predicate는 맞고 sub, obj 두개 모두 틀린경우를 neg 샘플로 뽑는다.
+        idx_list=[(i,j) for i in range(min(len(num_samples)+1,len(objs_target)))  for j in range(min(len(num_samples)+1,len(objs_target)))]
+        neg_edges = []
+        obj_sorted_idx = torch.argsort(objs_target, dim=1, descending=True) # N_node X N_obj_class
+        for edge_index in range(len(edges)):
+            target_eo=[]
+            target_os=[]
+            target_rel=[]
+            
+            gt_obj=gt_edges[edge_index][0]
+            gt_sub=gt_edges[edge_index][1]
+            
+            idx_list.sort(key = lambda x : objs_target[obj_sorted_idx[x[0]]] + objs_target[obj_sorted_idx[x[1]]], reverse=True)
+            idx_obj = edges[edge_index][0] # obj node idx
+            idx_sub = edges[edge_index][1] # sub node idx
+            target_obj_list = obj_sorted_idx[idx_obj] # N_obj_class
+            target_sub_list = obj_sorted_idx[idx_sub] # N_obj_class
+            
+            for i,j in idx_list:
+                if (target_obj_list[i]!=gt_obj) and (target_obj_list[j]!=gt_sub):
+                    target_eo.append(target_obj_list[i])
+                    target_os.append(target_sub_list[i])
+            target_rel = rels_target[edge_index]
+            
+            neg_edges.append((target_eo, target_os, target_rel))
+        return neg_edges
+    
+    def Add_sample_to_buffer(self, obj_pred, rel_pred, edges, gt_edges, num_samples):
+        """
+        Inputs: 
+            - objs_target: N X N_obj_cls
+            - obj_pred: N X N_obj_cls
+            - rels_target: N X N_rel_cls
+            - rel_pred: N X N_rel_cls
+            - edges: N X 2 
+        Outputs:
+        None
+        """
+        pred_edges = self.__get_neg(obj_pred, rel_pred, edges, gt_edges, num_samples) # E X ([sub,...], [obj,..], [pred,])
+        for edge_index in range(len(gt_edges)):
+            sub_target_idx = gt_edges[edge_index][0] # 1
+            pred_target_idx_list = gt_edges[edge_index][2] # N_gt_pred
+            obj_traget_idx = gt_edges[edge_index][1] # 1
+            
+            sub_neg_idx_list = pred_edges[edge_index][0] # N_add_sample
+            pred_neg_idx_list = pred_edges[edge_index][2] # N_gt_pred
+            obj_neg_idx_list = pred_edges[edge_index][1] # N_add_sample
+            assert len(sub_neg_idx_list)==len(obj_neg_idx_list)
+            
+            for pred_idx in range(len(pred_target_idx_list)):
+                target_triplet=(sub_target_idx, pred_target_idx_list[pred_idx], obj_traget_idx)
+                for pred_neg_idx in range(len(pred_neg_idx_list[pred_idx])):
+                    for obj_neg_idx in range(len(obj_neg_idx_list)):
+                        neg_triplet=(sub_neg_idx_list[obj_neg_idx], pred_target_idx_list[pred_idx][pred_neg_idx], obj_neg_idx_list[obj_neg_idx])
+                        self.replay_buffer.Put_Sample(target_triplet,neg_triplet)
+    
+    @torch.no_grad()
+    def sample(self, objs_target, rels_target, edges):
+        """
+        Inputs: 
+            - objs_target: N X N_obj_cls
+            - rels_target: N X N_rel_cls
+            - edges: N X 2 
+        Outputs:
+        For multi-relaitonship, 
+            - pos_target_rel_feats: M X N_feats
+            - neg_target_rel_feats: M X N_neg X N_feats
+            - rel_index, Relationship Index for G.T Labels: M X 1 \in [0, N-1]
+        """
+        # target_pos_feats: N X N_feats
+        # target_neg_feats: N X N_neg X N_feats
+        target_pos_token, target_neg_token = [], []
+        
+        rel_index = []
+        for edge_index in range(len(edges)):
+            idx_eo = edges[edge_index][0]
+            idx_os = edges[edge_index][1]
+            target_eo = self.obj_label_list[objs_target[idx_eo]]
+            target_os = self.obj_label_list[objs_target[idx_os]]
+            assert rels_target.ndim == 2
+            
+            if rels_target[edge_index].sum() == 0:
+                # relationship = 'none'
+                pos_token = clip.tokenize(f"the {target_eo} and the {target_os} has no relation in the point cloud").to(self.device)
+                target_pos_token.append(pos_token) # 1 X N_t
+                # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
+                
+                neg_samples = self.__sample_negative_labels(idx_eo, -1, idx_os)
+                neg_tokens = clip.tokenize([ f"a point cloud of a {target_sub} {target_pred} a {target_obj}" for target_sub,target_pred,target_obj in neg_samples ]).to(self.device)
+                target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
+                rel_index.append(edge_index)
+            else:
+                for i in range(rels_target.shape[-1]):
+                    if rels_target[edge_index][i] == 1:
+                        pos_rel = self.rel_label_list[i]
+                        pos_token = clip.tokenize(f"a point cloud of a {target_eo} {pos_rel} a {target_os}").to(self.device)
+                        target_pos_token.append(pos_token) # 1 X N_t
+                        # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
+                        
+                        neg_samples = self.__sample_negative_labels(idx_eo, i, idx_os)
+                        neg_tokens = clip.tokenize([ f"a point cloud of a {target_sub} {target_pred} a {target_obj}" for target_sub,target_pred,target_obj in neg_samples ]).to(self.device)
+                        target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                        # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
+                        rel_index.append(edge_index)
+    
+        p_target_tokens = torch.vstack(target_pos_token).to(self.device) # M X N_t
+        n_target_tokens = torch.vstack(target_neg_token).to(self.device) # M X N_neg X N_t
+        p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
+        n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
+        return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
