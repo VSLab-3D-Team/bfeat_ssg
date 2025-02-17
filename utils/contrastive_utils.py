@@ -565,7 +565,8 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
         #일단은 predicate는 맞고 sub, obj 두개 모두 틀린경우를 neg 샘플로 뽑는다.
         idx_list=[(i,j) for i in range(min(num_samples+1,len(objs_target)))  for j in range(min(num_samples+1,len(objs_target)))]
         neg_edges = []
-        obj_sorted_idx = torch.argsort(objs_target, dim=1, descending=True) # N_node X N_obj_class
+        obj_conf = torch.argmax(objs_target, dim=-1, keepdim=True) # N_node X 1
+        obj_sorted_idx = torch.argsort(obj_conf, dim=1, descending=True) # N_node X 1
         for edge_index in range(len(edges)):
             target_eo=[]
             target_os=[]
@@ -574,7 +575,10 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
             gt_obj=gt_edges[edge_index][0]
             gt_sub=gt_edges[edge_index][1]
             
-            idx_list.sort(key = lambda x : objs_target[obj_sorted_idx[x[0]]] + objs_target[obj_sorted_idx[x[1]]], reverse=True)
+            idx_list.sort(
+                key = lambda x : obj_conf[obj_sorted_idx[x[0]]].item() + obj_conf[obj_sorted_idx[x[1]]].item(),
+                reverse=True
+            )
             idx_obj = edges[edge_index][0] # obj node idx
             idx_sub = edges[edge_index][1] # sub node idx
             target_obj_list = obj_sorted_idx[idx_obj] # N_obj_class

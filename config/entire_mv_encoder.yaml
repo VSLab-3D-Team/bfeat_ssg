@@ -19,7 +19,7 @@ train:
   batch_size: 64
   workers: 12
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_entire_mv_replay_mlinfo
+  wandb_project: bfeat_sg_entire_mv_replay
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true

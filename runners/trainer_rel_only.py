@@ -94,7 +94,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                 
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_feats = self.model(obj_pts, edge_indices, descriptor, batch_ids)
+                edge_feats, obj_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 
                 pos_pair, neg_pair, rel_indices = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
                 t_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
@@ -161,7 +161,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_feats = self.model(obj_pts, edge_indices, descriptor, batch_ids)
+                edge_feats, obj_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 
                 obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats)
                 rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
