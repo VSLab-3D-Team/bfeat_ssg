@@ -167,7 +167,7 @@ class BaseTrainer(ABC):
         top_k_rel = evaluate_topk_predicate(rel_logits.detach(), gt_edges, self.d_config.multi_rel, topk=6)
         
         if self.t_config.sampler == "replay_buffer":
-            self.contrastive_sampler.Add_sample_to_buffer(self, obj_logits, rel_logits, edge_indices, gt_edges, 8)
+            self.contrastive_sampler.Add_sample_to_buffer(obj_logits, rel_logits, edge_indices, gt_edges, 8)
         
         obj_topk_list = [100 * (top_k_obj <= i).sum() / len(top_k_obj) for i in [1, 5, 10]]
         rel_topk_list = [100 * (top_k_rel <= i).sum() / len(top_k_rel) for i in [1, 3, 5]]
