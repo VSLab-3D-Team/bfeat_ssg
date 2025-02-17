@@ -572,23 +572,21 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
             target_os=[]
             target_rel=[]
             
-            gt_obj=gt_edges[edge_index][0]
-            gt_sub=gt_edges[edge_index][1]
+            gt_sub=gt_edges[edge_index][0]
+            gt_obj=gt_edges[edge_index][1]
             
             idx_list.sort(
                 key = lambda x : obj_conf[obj_sorted_idx[x[0]]].item() + obj_conf[obj_sorted_idx[x[1]]].item(),
                 reverse=True
             )
-            idx_obj = edges[edge_index][0] # obj node idx
-            idx_sub = edges[edge_index][1] # sub node idx
-            target_obj_list = obj_sorted_idx[idx_obj] # N_obj_class
-            target_sub_list = obj_sorted_idx[idx_sub] # N_obj_class
-            
+                        
             cnt=0
             for i,j in idx_list:
-                if (target_obj_list[i]!=gt_obj) and (target_obj_list[j]!=gt_sub):
-                    target_eo.append(target_obj_list[i])
-                    target_os.append(target_sub_list[i])
+                target_sub_idx = obj_sorted_idx[i]
+                target_obj_idx = obj_sorted_idx[j]
+                if (target_sub_idx != gt_sub) and (target_obj_idx != gt_obj):
+                    target_eo.append(target_sub_idx)
+                    target_os.append(target_obj_idx)
                     cnt+=1
                 if cnt>=num_samples:
                     break
