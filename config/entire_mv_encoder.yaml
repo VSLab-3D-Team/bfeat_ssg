@@ -44,7 +44,7 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 6
+  num_layers: 9
 
 optimizer:
   learning_rate: 0.001
