@@ -20,7 +20,13 @@ class BFeatVanillaTrainer(BaseTrainer):
         super().__init__(config, device)
         
         # Model Definitions
-        self.model = BFeatVanillaNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
+        self.m_config = config.model
+        self.model = BFeatVanillaNet(
+            self.config, 
+            self.num_obj_class, 
+            self.num_rel_class, 
+            device
+        ).to(device)
         
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(

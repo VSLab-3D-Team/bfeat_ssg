@@ -30,7 +30,8 @@ class BFeatJJamTongNet(BaseNetwork):
         self.relation_encoder = RelFeatNaiveExtractor(
             self.m_config.dim_obj_feats,
             self.m_config.dim_geo_feats,
-            self.m_config.dim_edge_feats
+            self.m_config.dim_edge_feats,
+            self.m_config.num_layers
         ).to(self.device)
         
         self.gat = BFeatVanillaGAT(

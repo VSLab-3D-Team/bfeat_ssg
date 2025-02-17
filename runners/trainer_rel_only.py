@@ -23,7 +23,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
         self.m_config = config.model
         # Model Definitions
         self.build_text_classifier()
-        self.model = BFeatRelOnlyNet(self.config, self.text_gt_matrix, device, num_layers=9).to(device)
+        self.model = BFeatRelOnlyNet(self.config, self.text_gt_matrix, device).to(device)
         ## Contrastive loss only for Relationship Feature extractor
         self.rel_classifier = RelCosineClassifier(
             self.rel_label_list, 

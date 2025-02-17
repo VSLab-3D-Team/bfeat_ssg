@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class BFeatRelObjConNet(BaseNetwork):
-    def __init__(self, config, obj_gt_feat_mat, device, num_layers=6):
+    def __init__(self, config, obj_gt_feat_mat, device):
         super(BFeatRelObjConNet, self).__init__()
         self.config = config
         self.t_config = config.train
@@ -31,7 +31,7 @@ class BFeatRelObjConNet(BaseNetwork):
             self.m_config.dim_obj_feats,
             self.m_config.dim_geo_feats,
             self.m_config.dim_edge_feats,
-            num_layers
+            self.m_config.num_layers
         ).to(self.device)
         
     def forward(
@@ -63,7 +63,7 @@ class BFeatRelObjConNet(BaseNetwork):
             return obj_pred, edge_feats
 
 class BFeatRelOnlyNet(BaseNetwork):
-    def __init__(self, config, obj_gt_feat_mat, device, num_layers=6):
+    def __init__(self, config, obj_gt_feat_mat, device):
         super(BFeatRelOnlyNet, self).__init__()
         self.config = config
         self.t_config = config.train
@@ -85,7 +85,7 @@ class BFeatRelOnlyNet(BaseNetwork):
             self.m_config.dim_obj_feats,
             self.m_config.dim_geo_feats,
             self.m_config.dim_edge_feats,
-            num_layers
+            self.m_config.num_layers
         ).to(self.device)
         
     def forward(
