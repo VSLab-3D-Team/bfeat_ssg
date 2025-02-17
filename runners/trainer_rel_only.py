@@ -1,19 +1,18 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
-from utils.contrastive_utils import ContrastiveFreqWeightedSampler, ContrastiveHybridTripletSampler
 from utils.model_utils import rotation_matrix
 from runners.base_trainer import BaseTrainer
 from model.frontend.relextractor import *
-from model.models.model_rel_only import BFeatRelOnlyNet
+from model.backend.classifier import consine_classification_obj
+from model.models.model_rel_only import BFeatRelOnlyNet, BFeatGNNRelOnlyNet
 from model.backend.classifier import RelCosineClassifier
-from model.loss import MultiLabelInfoNCELoss, IntraModalBarlowTwinLoss, SupervisedCrossModalInfoNCE
+from model.loss import MultiLabelInfoNCELoss
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import wandb
-import clip
 
 ## TODO: Relationship Feature Extractor Contrastive learning only
 class BFeatRelOnlyContrasTrainer(BaseTrainer):
@@ -23,7 +22,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
         self.m_config = config.model
         # Model Definitions
         self.build_text_classifier()
-        self.model = BFeatRelOnlyNet(self.config, self.text_gt_matrix, device).to(device)
+        self.model = BFeatGNNRelOnlyNet(self.config, device).to(device)
         ## Contrastive loss only for Relationship Feature extractor
         self.rel_classifier = RelCosineClassifier(
             self.rel_label_list, 
@@ -95,7 +94,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                 
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_pred = self.model(obj_pts, edge_indices.t().contiguous(), descriptor)
+                edge_feats, obj_feats = self.model(obj_pts, edge_indices, descriptor, batch_ids)
                 
                 pos_pair, neg_pair, rel_indices = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
                 t_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
@@ -111,6 +110,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                     ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
                 if e % self.t_config.log_interval == 0:
+                    obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats)
                     rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                     logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                     t_log += logs
@@ -161,7 +161,9 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_pred = self.model(obj_pts, edge_indices.t().contiguous(), descriptor)
+                edge_feats, obj_feats = self.model(obj_pts, edge_indices, descriptor, batch_ids)
+                
+                obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats)
                 rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                 
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)

@@ -72,6 +72,3 @@ class BFeatSkipObjNet(BaseNetwork):
         return edge_feats, obj_pred, rel_pred
         
         
-        
-        
-        

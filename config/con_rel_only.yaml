@@ -16,19 +16,19 @@ train:
   log_interval: 5
   evaluation_interval: 10
   save_interval: 20
-  batch_size: 64
+  batch_size: 16
   workers: 12
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_con_rel_only
+  wandb_project: bfeat_sg_con_relgnn_only
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
   meter: average
   scheduler: 'cyclic'
-  num_negative_sample: 8
+  num_negative_sample: 4
   sampler: 'frequency'
   freq_temperature: 0.3
-  loss_temperature: 0.1
+  loss_temperature: 0.3
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_con: 1.0
@@ -45,7 +45,7 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 6
+  num_layers: 12
 
 optimizer:
   learning_rate: 0.001
