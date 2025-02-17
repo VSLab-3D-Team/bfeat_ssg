@@ -563,7 +563,7 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
         #현재는 각 obj와 sub의 두개 모두 예측이 실패한 경우를 neg sample로 삼는다
         #예측 자체는 성공하더라도 정답 triplet을 제외하고 가장 가능성 높게나온 triplet 케이스를 샘플로 삼는다.
         #일단은 predicate는 맞고 sub, obj 두개 모두 틀린경우를 neg 샘플로 뽑는다.
-        idx_list=[(i,j) for i in range(min(len(num_samples)+1,len(objs_target)))  for j in range(min(len(num_samples)+1,len(objs_target)))]
+        idx_list=[(i,j) for i in range(min(num_samples+1,len(objs_target)))  for j in range(min(num_samples+1,len(objs_target)))]
         neg_edges = []
         obj_sorted_idx = torch.argsort(objs_target, dim=1, descending=True) # N_node X N_obj_class
         for edge_index in range(len(edges)):
