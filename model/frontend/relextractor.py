@@ -44,22 +44,24 @@ class RelFeatNaiveExtractor(nn.Module):
         r_ij = self.res_blocks(e_ij)
         return self.fc_out(r_ij)
 
-class RelFeatCrossExtractor(nn.Module):
+class RelFeatMergeExtractor(nn.Module):
     def __init__(self, dim_obj_feats, dim_geo_feats, dim_out_feats):
-        super(RelFeatCrossExtractor, self).__init__()
-        self.linear_obj_fc = nn.Linear(dim_obj_feats, dim_out_feats, bias=False)
-        self.linear_geo_fc = nn.Linear(dim_geo_feats, dim_out_feats)
+        super(RelFeatMergeExtractor, self).__init__()
+        self.obj_proj = nn.Linear(dim_obj_feats, dim_out_feats)
+        self.geo_proj = nn.Linear(dim_geo_feats, dim_out_feats)
+        self.merge_layer = nn.Conv1d(in_channels=3, out_channels=1, kernel_size=5, stride=1, padding="same")
     
-    def forward(self, x_i, x_j, geo_desc): 
+    def forward(self, x_i, x_j, geo_feats): 
         # 다른 2개의 feature가 512 dimension인 것에 비하여, geometric descriptor는 11 차원으로 턱 없이 부족한 차원/정보양을 가짐
         # 이 둘을 적절하게 엮을 수 있는 network architecture를 고안할 필요가 있음.
         # 일단, visual feature는 생각하지 말고 여기에 집중하자.
-        R_i = self.linear_obj_fc(x_i)
-        R_j = self.linear_obj_fc(x_j)
-        R_ij = self.linear_geo_fc(geo_desc)
+        p_i, p_j, g_ij = self.obj_proj(x_i), self.obj_proj(x_j), self.geo_proj(geo_feats)
+        m_ij = torch.cat([
+            p_i.unsqueeze(1), p_j.unsqueeze(1), g_ij.unsqueeze(1)
+        ], dim=1)
         
-        
-        return  # think novel method
+        edge_init_feats = self.merge_layer(m_ij).squeeze(1) # B X 512
+        return edge_init_feats # think novel method
 
 ## Discarded.
 ## 우선, High frequency information을 잘 capture할 수 있도록 고안된 모듈임

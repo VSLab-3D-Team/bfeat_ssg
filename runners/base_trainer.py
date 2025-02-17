@@ -89,7 +89,7 @@ class BaseTrainer(ABC):
     
         # Wandb & Logger
         now = datetime.now()
-        self.exp_name = f"{self.t_config.wandb_project}_{now.strftime('%Y-%m-%d_%H')}"
+        self.exp_name = f"{self.t_config.wandb_project}_{self.config.exp_desc}_{now.strftime('%Y-%m-%d_%H')}"
         self.__setup_checkpoint(self.exp_name)
         wandb.init(project="BetterFeat_3DSSG", name=self.exp_name)
         self.wandb_log = {}
@@ -114,7 +114,6 @@ class BaseTrainer(ABC):
     def build_text_classifier(self):
         obj_tokens = torch.cat([ clip.tokenize(f"A point cloud of a {obj}") for obj in self.obj_label_list ], dim=0).to(self.device)
         self.text_gt_matrix = self.text_encoder.encode_text(obj_tokens).float() # N_obj_cls X N_feat
-        # v_obj_tokens = torch.
         
     def reset_meters(self):
         for k in list(self.meters.keys()):
@@ -168,7 +167,7 @@ class BaseTrainer(ABC):
         top_k_rel = evaluate_topk_predicate(rel_logits.detach(), gt_edges, self.d_config.multi_rel, topk=6)
         
         if self.t_config.sampler == "replay_buffer":
-            self.contrastive_sampler.Add_sample_to_buffer(obj_logits, rel_logits, edge_indices, gt_edges, 8)
+            self.contrastive_sampler.Add_sample_to_buffer(obj_logits, rel_logits, edge_indices, gt_edges, 3)
         
         obj_topk_list = [100 * (top_k_obj <= i).sum() / len(top_k_obj) for i in [1, 5, 10]]
         rel_topk_list = [100 * (top_k_rel <= i).sum() / len(top_k_rel) for i in [1, 3, 5]]

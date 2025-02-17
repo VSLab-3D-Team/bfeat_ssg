@@ -9,10 +9,11 @@ parser = argparse.ArgumentParser(description="Training BFeat Architecture")
 parser.add_argument("--mode", type=str, default="train", choices=["train", "experiment"], help="Select mode for BFeat (train/evaluation)")
 parser.add_argument("--runners", 
     type=str, default="vanilla", 
-    choices=["vanilla", "skipobj", "jjamtong", "con_jjamtong", "con_relonly"], 
+    choices=["vanilla", "skipobj", "jjamtong", "con_jjamtong", "con_relonly", "direct_gnn"], 
     help="Select running model"
 )
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
+parser.add_argument("--exp_explain", type=str, default="default", help="Runtime configuration file path")
 parser.add_argument("--resume", type=str, help="Resume training from checkpoint")
 args = parser.parse_args()
 
@@ -28,6 +29,8 @@ def train(config):
         trainer = BFeatRelSSLTrainer(config, device)
     elif args.runners == "con_relonly":
         trainer = BFeatRelOnlyContrasTrainer(config, device)
+    elif args.runners == "direct_gnn":
+        trainer = BFeatDirectGNNTrainer(config, device)
     else:
         raise NotImplementedError
     trainer.train()
@@ -41,6 +44,7 @@ if __name__ == "__main__":
     # mp.set_start_method("spawn", force=True)
     with initialize(config_path="./config"):
         override_list = [] if not args.resume else [f"+resume={args.resume}"]
+        override_list.append(f"+exp_desc={args.exp_explain}")
         config = compose(config_name=args.config, overrides=override_list)
     
     runtime_mode = args.mode
