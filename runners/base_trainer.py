@@ -104,7 +104,7 @@ class BaseTrainer(ABC):
             self.contrastive_sampler = ContrastiveTripletSampler(config, device)
         elif self.t_config.sampler == "frequency":
             self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
-        elif self.t_config.sampler == "ReplayBuffer":
+        elif self.t_config.sampler == "replay_buffer":
             self.contrastive_sampler = ContrastiveReplayBufferSampler(config,device)
         else:
             raise NotImplementedError
