@@ -68,6 +68,26 @@ class mySequential(nn.Sequential, BaseNetwork):
             else:
                 inputs = module(inputs)
         return inputs
-    
+
+class ResidualBlock(nn.Module):
+    def __init__(self, dim):
+        super(ResidualBlock, self).__init__()
+        self.fc1 = nn.Linear(dim, dim)
+        self.bn1 = nn.BatchNorm1d(dim)
+        self.fc2 = nn.Linear(dim, dim)
+        self.bn2 = nn.BatchNorm1d(dim)
+        self.activation = nn.ReLU()
+
+    def forward(self, x):
+        residual = x  # Skip Connection
+        out = self.fc1(x)
+        out = self.bn1(out)
+        out = self.activation(out)
+        out = self.fc2(out)
+        out = self.bn2(out)
+        out += residual  # Add Skip Connection
+        out = self.activation(out)
+        return out
+
 if __name__ == "__main__":
     pass

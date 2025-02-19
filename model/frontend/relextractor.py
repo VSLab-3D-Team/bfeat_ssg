@@ -1,26 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-class ResidualBlock(nn.Module):
-    def __init__(self, dim):
-        super(ResidualBlock, self).__init__()
-        self.fc1 = nn.Linear(dim, dim)
-        self.bn1 = nn.BatchNorm1d(dim)
-        self.fc2 = nn.Linear(dim, dim)
-        self.bn2 = nn.BatchNorm1d(dim)
-        self.activation = nn.ReLU()
-
-    def forward(self, x):
-        residual = x  # Skip Connection
-        out = self.fc1(x)
-        out = self.bn1(out)
-        out = self.activation(out)
-        out = self.fc2(out)
-        out = self.bn2(out)
-        out += residual  # Add Skip Connection
-        out = self.activation(out)
-        return out
+from model.models.baseline import ResidualBlock
 
 class RelFeatNaiveExtractor(nn.Module):
     def __init__(self, input_dim, geo_dim, out_dim, num_layers=6):

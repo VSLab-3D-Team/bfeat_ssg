@@ -19,14 +19,15 @@ train:
   batch_size: 64
   workers: 12
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_direct_gnn
+  wandb_project: bfeat_sg_tri_con_direct_gnn
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
   meter: average
   scheduler: 'cyclic'
-  num_negative_sample: 8
+  num_negative_sample: 9
   sampler: 'frequency'
+  triplet_sampler: 'one_component' # one_component, two_component, replay
   freq_temperature: 0.3
   loss_temperature: 0.3
   lambda_obj: 0.1
@@ -46,6 +47,7 @@ model:
   flow: target_to_source
   num_layers: 6
   relation_type: "resnet"
+  triplet_feat_type: "1dconv"
 
 optimizer:
   learning_rate: 0.001
