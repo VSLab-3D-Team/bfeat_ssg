@@ -24,7 +24,7 @@ train:
   drop_out: 0.5
   verbose: true
   meter: average
-  scheduler: 'cyclic'
+  scheduler: 'consine'
   num_negative_sample: 9
   sampler: 'replay_buffer'
   triplet_sampler: 'one_component' # one_component, two_component, replay
