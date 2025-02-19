@@ -158,6 +158,7 @@ class BFeatVanillaTrainer(BaseTrainer):
         
         topk_obj_list, topk_rel_list, topk_triplet_list, cls_matrix_list = np.array([]), np.array([]), np.array([]), []
         sub_scores_list, obj_scores_list, rel_scores_list = [], [], []
+        sgcls_recall_list, predcls_recall_list  = [],[]
         logs = []
         
         with torch.no_grad():
@@ -193,6 +194,12 @@ class BFeatVanillaTrainer(BaseTrainer):
                         gt_edges, edge_indices, self.d_config.multi_rel, 
                         topk=101, use_clip=True, obj_topk=top_k_obj
                     )
+                
+                sgcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.mconfig.multi_rel_outputs, [20,50,100], 100, use_clip=True, evaluate='triplet')
+                predcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.mconfig.multi_rel_outputs, [20,50,100], 100, use_clip=True, evaluate='rels')
+                
+                sgcls_recall_list.append(sgcls_recall)
+                predcls_recall_list.append(predcls_recall)
                 
                 topk_obj_list = np.concatenate((topk_obj_list, top_k_obj))
                 topk_rel_list = np.concatenate((topk_rel_list, top_k_rel))
@@ -231,6 +238,12 @@ class BFeatVanillaTrainer(BaseTrainer):
             triplet_acc_50 = (topk_triplet_list <= 50).sum() * 100 / len(topk_triplet_list)
             triplet_acc_100 = (topk_triplet_list <= 100).sum() * 100 / len(topk_triplet_list)
             
+            sgcls_recall_list=np.array(sgcls_recall_list) # N_graph X [correct@20,correct@50,correct@100]
+            predcls_recall_list=np.array(predcls_recall_list) # N_graph X [correct@20,correct@50,correct@100]
+            
+            sgcls_recall=np.mean(sgcls_recall_list,axis=0)
+            predcls_recall=np.mean(predcls_recall_list,axis=0)
+            
             rel_acc_mean_1, rel_acc_mean_3, rel_acc_mean_5 = self.compute_mean_predicate(cls_matrix_list, topk_rel_list)
             self.compute_predicate_acc_per_class(cls_matrix_list, topk_rel_list)
             logs += [
@@ -246,7 +259,14 @@ class BFeatVanillaTrainer(BaseTrainer):
                 ("Acc@50/triplet_acc", triplet_acc_50),
                 ("Acc@100/triplet_acc", triplet_acc_100),
                 ("mean_recall@50", mean_recall[0]),
-                ("mean_recall@100", mean_recall[1])
+                ("mean_recall@100", mean_recall[1]),
+                
+                ("SGcls@20", sgcls_recall[0]),
+                ("SGcls@50", sgcls_recall[1]),
+                ("SGcls@100", sgcls_recall[2]),
+                ("Predcls@20", predcls_recall[0]),
+                ("Predcls@50", predcls_recall[1]),
+                ("Predcls@100", predcls_recall[2]),
             ]
             self.wandb_log["Validation/Acc@1/obj_cls"] = obj_acc_1
             self.wandb_log["Validation/Acc@5/obj_cls"] = obj_acc_5
@@ -260,7 +280,14 @@ class BFeatVanillaTrainer(BaseTrainer):
             self.wandb_log["Validation/Acc@50/triplet_acc"] = triplet_acc_50
             self.wandb_log["Validation/Acc@100/triplet_acc"] = triplet_acc_100
             self.wandb_log["Validation/mRecall@50"] = mean_recall[0]
-            self.wandb_log["Validation/mRecall@100"] = mean_recall[1]        
+            self.wandb_log["Validation/mRecall@100"] = mean_recall[1]     
+            
+            self.wandb_log["Validation/SGcls@20"] = sgcls_recall[0]    
+            self.wandb_log["Validation/SGcls@50"] = sgcls_recall[1]    
+            self.wandb_log["Validation/SGcls@100"] = sgcls_recall[2]    
+            self.wandb_log["Validation/Predcls@20"] = predcls_recall[0]
+            self.wandb_log["Validation/Predcls@50"] = predcls_recall[1]
+            self.wandb_log["Validation/Predcls@100"] = predcls_recall[2]       
         return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
     
 
