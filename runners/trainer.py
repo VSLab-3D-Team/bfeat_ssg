@@ -195,8 +195,8 @@ class BFeatVanillaTrainer(BaseTrainer):
                         topk=101, use_clip=True, obj_topk=top_k_obj
                     )
                 
-                sgcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.mconfig.multi_rel_outputs, [20,50,100], 100, use_clip=True, evaluate='triplet')
-                predcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.mconfig.multi_rel_outputs, [20,50,100], 100, use_clip=True, evaluate='rels')
+                sgcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='triplet')
+                predcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='rels')
                 
                 sgcls_recall_list.append(sgcls_recall)
                 predcls_recall_list.append(predcls_recall)
