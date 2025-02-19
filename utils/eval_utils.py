@@ -415,7 +415,7 @@ def evaluate_triplet_recallk(objs_pred, rels_pred, gt_rel, edges, multi_rel_outp
 
         edge = int(edge)
         if evaluate == 'triplet':
-            idx = np.unravel_index(idx_1d, (size_o, size_o, size_r))
+            idx = np.unravel_index(idx_1d.item(), (size_o, size_o, size_r))
             if sub_gt == idx[0] and obj_gt == idx[1] and (idx[2] in rel_gt):
                 for _, k in enumerate(topk_list):
                     if idk < k and edge not in iscompute[_].keys():
@@ -523,7 +523,7 @@ def evaluate_triplet_mrecallk(objs_pred, rels_pred, gt_rel, edges, multi_rel_out
 
         edge = int(edge)
         if evaluate == 'triplet':
-            idx = np.unravel_index(idx_1d, (size_o, size_o, size_r))
+            idx = np.unravel_index(idx_1d.item(), (size_o, size_o, size_r))
             if sub_gt == idx[0] and obj_gt == idx[1] and (idx[2] in rel_gt):
                 for _, k in enumerate(topk_list):
                     #for cls in range(26):
