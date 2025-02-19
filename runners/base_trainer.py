@@ -21,6 +21,7 @@ class BaseTrainer(ABC):
         self.device = device
         self.t_config = config.train
         self.d_config = config.dataset
+        self.m_config = config.model
         self.opt_config = config.optimizer
         if not multi_view_ssl:
             self.t_dataset = build_dataset(self.d_config, split="train_scans", device=device)
@@ -97,18 +98,60 @@ class BaseTrainer(ABC):
         # Average & Max Meter
         self.meters = build_meters(self.t_config.meter)
         
-         # Contrastive positive/negative pair sampler  
+        # Contrastive positive/negative pair sampler  
+        self.build_embedding_storage()
         if self.t_config.sampler == "hybrid":
-            self.contrastive_sampler = ContrastiveHybridTripletSampler(config, device)
+            self.contrastive_sampler = ContrastiveHybridTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
         elif self.t_config.sampler == "triplet":
-            self.contrastive_sampler = ContrastiveTripletSampler(config, device)
+            self.contrastive_sampler = ContrastiveTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
         elif self.t_config.sampler == "frequency":
-            self.contrastive_sampler = ContrastiveFreqWeightedSampler(config, device)
+            self.contrastive_sampler = ContrastiveFreqWeightedSampler(self.embedding_vector_loader, self.none_emb, config, device)
         elif self.t_config.sampler == "replay_buffer":
-            self.contrastive_sampler = ContrastiveReplayBufferSampler(config,device)
+            self.contrastive_sampler = ContrastiveReplayBufferSampler(self.embedding_vector_loader, self.none_emb, config,device)
         else:
             raise NotImplementedError
+
+    @torch.no_grad()
+    def crazy_negative_embedding(self, token_vecs: torch.Tensor):
+        """
+        Embrace the bullshit.
+        GPU is too expensive.
+        FXXK YOU NVIDIA
+        """
+        target_feats = []
+        num_seqs = token_vecs.shape[1]
+        for n_i in range(num_seqs):
+            t_tokens = token_vecs[:, n_i, :] # N_obj_cls X N_token
+            target_feats.append(self.text_encoder.encode_text(t_tokens).float().unsqueeze(1))
+        return torch.cat(target_feats, dim=1) # N_obj_cls X N_rel_cls X N_token
+    
+    @torch.no_grad()
+    def build_embedding_storage(self):
+        N_emb_mat = len(self.obj_label_list)
+        self.embedding_vector_loader = torch.zeros(
+            (N_emb_mat, N_emb_mat, len(self.rel_label_list), self.m_config.dim_obj_feats
+        ), dtype=torch.float32).to(self.device)
+        self.none_emb = torch.zeros((N_emb_mat, N_emb_mat, self.m_config.dim_obj_feats), dtype=torch.float32).to(self.device)
         
+        for i, k_s in tqdm(enumerate(self.obj_label_list)):
+            rel_text_prompt = []
+            none_text_prompt = []
+            for _, k_o in enumerate(self.obj_label_list):
+                prompt_ij = clip.tokenize(
+                    [ f"a point cloud of a {k_s} {x} a {k_o}" for x in self.rel_label_list ]
+                ).to(self.device)
+                rel_text_prompt.append(prompt_ij.unsqueeze(0))
+                none_ij = clip.tokenize([
+                    f"the {k_s} and the {k_o} has no relation in the point cloud"
+                ]).to(self.device) # 1 X N_t
+                none_text_prompt.append(none_ij)
+            rel_prompt_batch = torch.vstack(rel_text_prompt) # N_obj_cls X N_rel_cls X N_token
+            rel_feat_cls = self.crazy_negative_embedding(rel_prompt_batch)
+            self.embedding_vector_loader[i, ...] = rel_feat_cls.clone()
+            none_batch = torch.vstack(none_text_prompt) # N_obj_cls X N_token
+            none_feats = self.text_encoder.encode_text(none_batch).float() # N_obj_cls X N_feats
+            self.none_emb[i, ...] = none_feats
+
     # Get text emebedding matrix for zero-shot classifier of closed-vocabulary
     @torch.no_grad()
     def build_text_classifier(self):

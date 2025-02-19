@@ -11,6 +11,7 @@ import numpy as np
 import clip
 import random
 import json
+from tqdm import tqdm
 
 def compute_frequnecy_weight(obj_label_list, rel_label_list, data, selected_scans, multi_rel, device):
     _, _, o_obj_cls, o_rel_cls = compute(obj_label_list, rel_label_list, data, selected_scans, False)
@@ -29,15 +30,18 @@ def compute_frequnecy_weight(obj_label_list, rel_label_list, data, selected_scan
     return w_cls_obj, w_cls_rel
 
 class ContrastiveAbstractSampler(ABC):
-    def __init__(self, config, device):
+    def __init__(self, embedding_vector_loader, none_emb, config, device):
         self.config = config
         self.device = device
         self.d_config = config.dataset
+        self.m_config = config.model
         self.num_neg_samples = config.train.num_negative_sample
         self.obj_label_path = f"{SSG_DATA_PATH}/3DSSG_subset/classes.txt"
         self.rel_label_path = f"{SSG_DATA_PATH}/3DSSG_subset/relationships.txt"
         self.__read_cls()
         self.text_encoder, _ = clip.load("ViT-B/32", device=device)
+        self.embedding_vector_loader = embedding_vector_loader
+        self.none_emb = none_emb
         
         ## Get predicate category
         self.predicate_cat = PREDICATE_CATEGORY.keys()
@@ -63,8 +67,8 @@ class ContrastiveAbstractSampler(ABC):
     
 
 class ContrastiveSingleLabelSampler(ContrastiveAbstractSampler):
-    def __init__(self, config, device):
-        super().__init__(config, device)
+    def __init__(self, embedding_vector_loader, none_emb, config, device):
+        super().__init__(embedding_vector_loader, none_emb, config, device)
     
     def __get_negative(self, gt_rel_index):
         return random.choice(self.negative_index[gt_rel_index])
@@ -130,8 +134,8 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
     wo/ hard negative sampling (hard-negative sampling with same category)
     It can make unseen triplets as negative samples
     """
-    def __init__(self, config, device):
-        super().__init__(config, device)
+    def __init__(self, embedding_vector_loader, none_emb, config, device):
+        super().__init__(embedding_vector_loader, none_emb, config, device)
         self.t_config = config.train
         data_path = f"{SSG_DATA_PATH}/3DSSG_subset"
         path_selection = f"{SSG_DATA_PATH}/3DSSG_subset"
@@ -158,21 +162,8 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
             sample_dist[anchor_idx] = 0.
             sample_dist = sample_dist / sample_dist.sum()
         sample_indices = torch.multinomial(sample_dist, self.num_neg_samples, replacement=False)
-        s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
-        return s_list.tolist()
-    
-    @torch.no_grad()
-    def __crazy_negative_embedding(self, target_neg_tokens: torch.Tensor):
-        """
-        Embrace the bullshit.
-        GPU is too expensive.
-        FXXK YOU NVIDIA
-        """
-        target_neg_feats = []
-        for n_i in range(self.num_neg_samples):
-            t_tokens = target_neg_tokens[:, n_i, :] # M X N_feat
-            target_neg_feats.append(self.text_encoder.encode_text(t_tokens).unsqueeze(1))
-        return torch.cat(target_neg_feats, dim=1)
+        # s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
+        return sample_indices
     
     @torch.no_grad()
     def sample(self, objs_target, rels_target, edges):
@@ -195,40 +186,38 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
         for edge_index in range(len(edges)):
             idx_eo = edges[edge_index][0]
             idx_os = edges[edge_index][1]
-            target_eo = self.obj_label_list[objs_target[idx_eo]]
-            target_os = self.obj_label_list[objs_target[idx_os]]
+            target_sub_idx = objs_target[idx_eo]
+            target_obj_idx = objs_target[idx_os]
             assert rels_target.ndim == 2
             
             if rels_target[edge_index].sum() == 0:
                 # relationship = 'none'
-                pos_token = clip.tokenize(f"the {target_eo} and the {target_os} has no relation in the point cloud").to(self.device)
-                target_pos_token.append(pos_token) # 1 X N_t
+                pos_feat = self.none_emb[target_sub_idx, target_obj_idx, :]
+                target_pos_token.append(pos_feat.unsqueeze(0)) # 1 X N_t
                 # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
                 
-                neg_samples = self.__sample_negative_labels(-1)
-                neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
-                target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                neg_samples_idx = self.__sample_negative_labels(-1)
+                neg_feats = self.embedding_vector_loader[target_sub_idx, target_obj_idx, neg_samples_idx, :]
+                target_neg_token.append(neg_feats.unsqueeze(0)) # 1 X N_neg X N_t
                 # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
                 rel_index.append(edge_index)
             else:
                 for i in range(rels_target.shape[-1]):
                     if rels_target[edge_index][i] == 1:
                         pos_rel = self.rel_label_list[i]
-                        pos_token = clip.tokenize(f"a point cloud of a {target_eo} {pos_rel} a {target_os}").to(self.device)
-                        target_pos_token.append(pos_token) # 1 X N_t
+                        pos_feat = self.embedding_vector_loader[target_sub_idx, target_obj_idx, i, :]
+                        target_pos_token.append(pos_feat.unsqueeze(0)) # 1 X N_t
                         # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
                         
-                        neg_samples = self.__sample_negative_labels(i)
-                        neg_tokens = clip.tokenize([ f"a point cloud of a {target_eo} {n_p} a {target_os}" for n_p in neg_samples ]).to(self.device)
-                        target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
+                        neg_samples_idx = self.__sample_negative_labels(i)
+                        neg_feats = self.embedding_vector_loader[target_sub_idx, target_obj_idx, neg_samples_idx, :]
+                        target_neg_token.append(neg_feats.unsqueeze(0)) # 1 X N_neg X N_t
                         # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
                         rel_index.append(edge_index)
     
         p_target_tokens = torch.vstack(target_pos_token).to(self.device) # M X N_t
         n_target_tokens = torch.vstack(target_neg_token).to(self.device) # M X N_neg X N_t
-        p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
-        n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
-        return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
+        return p_target_tokens.float(), n_target_tokens.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
 
 class ContrastiveTripletSampler(ContrastiveAbstractSampler):
     """
@@ -236,8 +225,8 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
     Hard negative sampling in same category of anchor
     Since there are small numbers of labels in predicate categories, we decided to sample negative samples w. objects 
     """
-    def __init__(self, config, device):
-        super().__init__(config, device)
+    def __init__(self, embedding_vector_loader, none_emb, config, device):
+        super().__init__(embedding_vector_loader, none_emb, config, device)
         self.t_config = config.train
         data_path = f"{SSG_DATA_PATH}/3DSSG_subset"
         path_selection = f"{SSG_DATA_PATH}/3DSSG_subset"
@@ -268,8 +257,8 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
         else:
             sample_dist = self.prob_rel_sample.clone()
         sample_indices = torch.multinomial(sample_dist, self.num_negs_per_type, replacement=False)
-        s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
-        return s_list
+        # s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
+        return sample_indices
     
     def __sample_neg_object(self, sub_anchor_idx, obj_anchor_idx):
         sample_dist = self.prob_obj_sample.clone()
@@ -277,38 +266,18 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
         sample_dist[obj_anchor_idx] = 0.
         sample_dist = sample_dist / sample_dist.sum()
         sample_indices = torch.multinomial(sample_dist, 2 * self.num_negs_per_type, replacement=False)
-        s_list = np.array(self.obj_label_list)[sample_indices.cpu().numpy()]
-        return s_list
+        # s_list = np.array(self.obj_label_list)[sample_indices.cpu().numpy()]
+        return sample_indices
     
     def __sample_neg_triplet(self, sub_anchor_idx, pred_anchor_idx, obj_anchor_idx):
-        target_sub = self.obj_label_list[sub_anchor_idx]
-        target_pred = self.rel_label_list[pred_anchor_idx]
-        target_obj = self.obj_label_list[obj_anchor_idx]
         pred_neg_labels = self.__sample_neg_predicate(pred_anchor_idx)
         neg_labels = self.__sample_neg_object(sub_anchor_idx, obj_anchor_idx)
-        obj_neg_labels = neg_labels[: len(neg_labels) // 2]
-        sub_neg_labels = neg_labels[len(neg_labels) // 2: ]
-        sub_neg_samples = [ f"a point cloud of a {n_sub} {target_pred} a {target_obj}" for n_sub in sub_neg_labels ]
-        obj_neg_samples = [ f"a point cloud of a {target_sub} {n_pred} a {target_obj}" for n_pred in pred_neg_labels ]
-        pred_neg_samples = [ f"a point cloud of a {target_sub} {target_pred} a {n_obj}" for n_obj in obj_neg_labels ]
-        return [
-            *sub_neg_samples,
-            *pred_neg_samples,
-            *obj_neg_samples
-        ]
-        
-    @torch.no_grad()
-    def __crazy_negative_embedding(self, target_neg_tokens: torch.Tensor):
-        """
-        Embrace the bullshit.
-        GPU is too expensive.
-        FXXK YOU NVIDIA
-        """
-        target_neg_feats = []
-        for n_i in range(self.num_neg_samples):
-            t_tokens = target_neg_tokens[:, n_i, :] # M X N_feat
-            target_neg_feats.append(self.text_encoder.encode_text(t_tokens).unsqueeze(1))
-        return torch.cat(target_neg_feats, dim=1)
+        obj_neg_labels = neg_labels[: self.num_negs_per_type]
+        sub_neg_labels = neg_labels[self.num_negs_per_type: ]
+        sub_neg_samples = self.embedding_vector_loader[sub_neg_labels, obj_anchor_idx, pred_anchor_idx, :].clone().detach() # N_neg X N_feat
+        obj_neg_samples = self.embedding_vector_loader[sub_anchor_idx, obj_neg_labels, pred_anchor_idx, :].clone().detach() # N_neg X N_feat
+        pred_neg_samples = self.embedding_vector_loader[sub_anchor_idx, obj_anchor_idx, pred_neg_labels, :].clone().detach() # N_neg X N_feat
+        return torch.vstack([sub_neg_samples, obj_neg_samples, pred_neg_samples])
     
     @torch.no_grad()
     def sample(self, objs_target, rels_target, edges):
@@ -331,35 +300,30 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
         for edge_index in range(len(edges)):
             idx_eo = edges[edge_index][0]
             idx_os = edges[edge_index][1]
-            target_eo = self.obj_label_list[objs_target[idx_eo]]
-            target_os = self.obj_label_list[objs_target[idx_os]]
+            target_sub_idx = objs_target[idx_eo]
+            target_obj_idx = objs_target[idx_os]
             assert rels_target.ndim == 2
             if rels_target[edge_index].sum() == 0:
                 # relationship = 'none'
-                pos_token = clip.tokenize(f"the {target_eo} and the {target_os} has no relation in the point cloud").to(self.device)
-                target_pos_token.append(pos_token)
+                pos_feat = self.none_emb[target_sub_idx, target_obj_idx, :]
+                target_pos_token.append(pos_feat.unsqueeze(0))
                 
-                neg_samples = self.__sample_neg_triplet(objs_target[idx_eo], -1, objs_target[idx_os])
-                neg_tokens = clip.tokenize(neg_samples).to(self.device)
-                target_neg_token.append(neg_tokens.unsqueeze(0))
+                neg_feats = self.__sample_neg_triplet(target_sub_idx, -1, target_obj_idx)
+                target_neg_token.append(neg_feats.unsqueeze(0))
                 rel_index.append(edge_index)
             else:
                 for i in range(rels_target.shape[-1]):
                     if rels_target[edge_index][i] == 1:
-                        pos_rel = self.rel_label_list[i]
-                        pos_token = clip.tokenize(f"a point cloud of a {target_eo} {pos_rel} a {target_os}").to(self.device)
-                        target_pos_token.append(pos_token)
+                        pos_feat = self.embedding_vector_loader[target_sub_idx, target_obj_idx, i, :]
+                        target_pos_token.append(pos_feat.unsqueeze(0))
                         
-                        neg_samples = self.__sample_neg_triplet(objs_target[idx_eo], i, objs_target[idx_os])
-                        neg_tokens = clip.tokenize(neg_samples).to(self.device)
-                        target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_feat
+                        neg_feats = self.__sample_neg_triplet(objs_target[idx_eo], i, objs_target[idx_os])
+                        target_neg_token.append(neg_feats.unsqueeze(0)) # 1 X N_neg X N_feat
                         rel_index.append(edge_index)
         
         p_target_tokens = torch.vstack(target_pos_token).to(self.device)
         n_target_tokens = torch.vstack(target_neg_token).to(self.device)
-        p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
-        n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
-        return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
+        return p_target_tokens.float(), n_target_tokens.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
 
 class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
     """
@@ -367,8 +331,8 @@ class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
     Hard negative sampling in same category of anchor
     Since there are small numbers of labels in predicate categories, we decided to sample negative samples w. objects 
     """
-    def __init__(self, config, device):
-        super().__init__(config, device)
+    def __init__(self, embedding_vector_loader, none_emb, config, device):
+        super().__init__(embedding_vector_loader, none_emb, config, device)
         self.t_config = config.train
         data_path = f"{SSG_DATA_PATH}/3DSSG_subset"
         path_selection = f"{SSG_DATA_PATH}/3DSSG_subset"
@@ -427,19 +391,6 @@ class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
             *pred_neg_samples,
             *obj_neg_samples
         ]
-        
-    @torch.no_grad()
-    def __crazy_negative_embedding(self, target_neg_tokens: torch.Tensor):
-        """
-        Embrace the bullshit.
-        GPU is too expensive.
-        FXXK YOU NVIDIA
-        """
-        target_neg_feats = []
-        for n_i in range(self.num_neg_samples):
-            t_tokens = target_neg_tokens[:, n_i, :] # M X N_feat
-            target_neg_feats.append(self.text_encoder.encode_text(t_tokens).unsqueeze(1))
-        return torch.cat(target_neg_feats, dim=1)
     
     @torch.no_grad()
     def sample(self, objs_target, rels_target, edges):
@@ -489,7 +440,7 @@ class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
         p_target_tokens = torch.vstack(target_pos_token).to(self.device)
         n_target_tokens = torch.vstack(target_neg_token).to(self.device)
         p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
-        n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
+        n_target_rel_feats = self.crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
         return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)
 
 class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
@@ -498,8 +449,8 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
     wo/ hard negative sampling (hard-negative sampling with same category)
     It can make unseen triplets as negative samples
     """
-    def __init__(self, config, device):
-        super().__init__(config, device)
+    def __init__(self, embedding_vector_loader, none_emb, config, device):
+        super().__init__(embedding_vector_loader, none_emb, config, device)
         self.t_config = config.train
         data_path = f"{SSG_DATA_PATH}/3DSSG_subset"
         path_selection = f"{SSG_DATA_PATH}/3DSSG_subset"
@@ -545,19 +496,6 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
             *buffer_neg_labels
         ]
         return neg_samples
-        
-    @torch.no_grad()
-    def __crazy_negative_embedding(self, target_neg_tokens: torch.Tensor):
-        """
-        Embrace the bullshit.
-        GPU is too expensive.
-        FXXK YOU NVIDIA
-        """
-        target_neg_feats = []
-        for n_i in range(self.num_neg_samples):
-            t_tokens = target_neg_tokens[:, n_i, :] # M X N_feat
-            target_neg_feats.append(self.text_encoder.encode_text(t_tokens).unsqueeze(1))
-        return torch.cat(target_neg_feats, dim=1)
     
     def __get_neg(self, objs_target, rels_target, edges, gt_edges, num_samples):
         #현재는 각 obj와 sub의 두개 모두 예측이 실패한 경우를 neg sample로 삼는다
@@ -676,5 +614,5 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
         p_target_tokens = torch.vstack(target_pos_token).to(self.device) # M X N_t
         n_target_tokens = torch.vstack(target_neg_token).to(self.device) # M X N_neg X N_t
         p_target_rel_feats = self.text_encoder.encode_text(p_target_tokens) # M X N_feats
-        n_target_rel_feats = self.__crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
+        n_target_rel_feats = self.crazy_negative_embedding(n_target_tokens) # M X N_neg X N_feats
         return p_target_rel_feats.float(), n_target_rel_feats.float(), torch.Tensor(rel_index).reshape(-1, 1).to(self.device)

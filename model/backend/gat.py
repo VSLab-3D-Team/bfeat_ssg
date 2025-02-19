@@ -55,10 +55,8 @@ class BFeatVanillaGAT(torch.nn.Module):
     
     def forward(
         self, 
-        obj_feature_3d, 
-        # obj_feature_2d, 
+        obj_feature_3d,  
         edge_feature_3d, 
-        # edge_feature_2d, 
         edge_index, 
         batch_ids, 
         obj_center=None,  
@@ -112,77 +110,6 @@ class BFeatVanillaGAT(torch.nn.Module):
                 # Final processing for Object Features 
                 obj_feature_3d = F.relu(obj_feature_3d)
                 obj_feature_3d = self.drop_out(obj_feature_3d)
-                # Final processing for Edge Features
-                edge_feature_3d = F.relu(edge_feature_3d)
-                edge_feature_3d = self.drop_out(edge_feature_3d)
-        
-        return obj_feature_3d, edge_feature_3d
-
-class BFeatSkipObjUpdateGAT(torch.nn.Module):
-
-    def __init__(
-        self, dim_node, dim_edge, dim_atten, num_heads=1, aggr= 'max', 
-        use_bn=False, flow='target_to_source', attention = 'fat', 
-        hidden_size=512, depth=1, use_edge:bool=True, **kwargs,
-    ):
-        super(BFeatVanillaGAT, self).__init__()
-
-        self.num_heads = num_heads
-        self.depth = depth
-
-        self.self_attn = nn.ModuleList(
-            MultiHeadAttention(d_model=dim_node, d_k=dim_node // num_heads, d_v=dim_node // num_heads, h=num_heads) 
-            for _ in range(depth)
-        )
-        
-        self.gcn_3ds = torch.nn.ModuleList()
-        
-        for _ in range(self.depth):
-                
-            self.gcn_3ds.append(
-                GraphEdgeAttenNetwork(
-                    num_heads,
-                    dim_node,
-                    dim_edge,
-                    dim_atten,
-                    aggr,
-                    use_bn=use_bn,
-                    flow=flow,
-                    attention=attention,
-                    use_edge=use_edge, 
-                    **kwargs
-                )
-            )
-           
-        self.self_attn_fc = nn.Sequential(  # 11 32 32 4(head)
-            nn.Linear(4, 32),  # xyz, dist
-            nn.ReLU(),
-            nn.LayerNorm(32),
-            nn.Linear(32, 32),
-            nn.ReLU(),
-            nn.LayerNorm(32),
-            nn.Linear(32, num_heads)
-        )
-        
-        self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
-    
-    
-    def forward(
-        self, 
-        obj_feature_3d, 
-        # obj_feature_2d, 
-        edge_feature_3d, 
-        # edge_feature_2d, 
-        edge_index, 
-        batch_ids, 
-        obj_center=None,  
-        istrain=False
-    ):
-        ## skip the object feature update
-        for i in range(self.depth):
-            _, edge_feature_3d = self.gcn_3ds[i](obj_feature_3d, edge_feature_3d, edge_index, istrain=istrain)
-
-            if i < (self.depth-1) or self.depth==1:
                 # Final processing for Edge Features
                 edge_feature_3d = F.relu(edge_feature_3d)
                 edge_feature_3d = self.drop_out(edge_feature_3d)

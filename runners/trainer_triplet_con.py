@@ -16,7 +16,7 @@ class BFeatTripletContrastiveTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device)
         
-        self.triplet_sampler = ContrastiveTripletSampler(config, device)
+        self.triplet_sampler = ContrastiveTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
         # Model Definitions
         self.m_config = config.model
         self.model = BFeatTripletContrastvieGNN(
