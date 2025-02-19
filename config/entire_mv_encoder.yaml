@@ -24,7 +24,7 @@ train:
   drop_out: 0.5
   verbose: true
   meter: average
-  scheduler: 'cosine'
+  scheduler: 'consine'
   num_negative_sample: 9
   sampler: 'replay_buffer'
   freq_temperature: 0.3
