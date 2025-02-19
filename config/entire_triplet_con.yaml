@@ -28,7 +28,7 @@ train:
   num_negative_sample: 9
   sampler: 'frequency'
   triplet_sampler: 'one_component' # one_component, two_component, replay
-  freq_temperature: 0.3
+  freq_temperature: 0.6
   loss_temperature: 0.1
   lambda_obj: 0.1
   lambda_rel: 1.0
