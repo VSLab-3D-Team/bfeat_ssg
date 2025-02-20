@@ -25,9 +25,9 @@ train:
   verbose: true
   meter: average
   scheduler: 'consine'
-  num_negative_sample: 9
-  sampler: 'replay_buffer'
-  freq_temperature: 0.3
+  num_negative_sample: 8
+  sampler: 'frequency'
+  freq_temperature: 0.07
   loss_temperature: 0.3
   lambda_obj: 0.1
   lambda_rel: 1.0
