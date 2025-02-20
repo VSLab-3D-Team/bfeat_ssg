@@ -55,6 +55,7 @@ class BFeatJJamTongNet(BaseNetwork):
         edge_indices: torch.Tensor, 
         descriptor: torch.Tensor, 
         batch_ids=None,
+        attn_weight=None,
         is_train = True
     ):
         if is_train:
@@ -73,7 +74,7 @@ class BFeatJJamTongNet(BaseNetwork):
         
         obj_center = descriptor[:, :3].clone()
         obj_gnn_feats, edge_gnn_feats = self.gat(
-            obj_feats, edge_feats, edge_indices, batch_ids, obj_center
+            obj_feats, edge_feats, edge_indices, batch_ids, obj_center, attn_weight
         )
         
         obj_pred = self.obj_classifier(obj_gnn_feats)

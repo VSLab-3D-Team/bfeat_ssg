@@ -28,7 +28,7 @@ train:
   num_negative_sample: 8
   sampler: 'frequency'
   freq_temperature: 0.3
-  loss_temperature: 0.1
+  loss_temperature: 0.3
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_con: 1.0
@@ -45,7 +45,7 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 6
+  num_layers: 9
 
 optimizer:
   learning_rate: 0.001
