@@ -94,7 +94,7 @@ class TFIDFMaskLayer(object):
         class_counts = torch.bincount(gt_obj_label.flatten(), minlength=self.num_classes).float()
         tf = class_counts / bsz
         
-        doc_count = torch.zeros(self.num_classes)
+        doc_count = torch.zeros(self.num_classes).to(self.device)
         for b in range(bsz):
             batch_mask = torch.where(batch_ids == b)[0]
             obj_label_batch = gt_obj_label[batch_mask]
@@ -105,7 +105,7 @@ class TFIDFMaskLayer(object):
         idf = torch.log((bsz + 1) / (1 + doc_count))
         weights = tf * idf
         weights = weights / (weights.sum() + 1e-6)  # 정규화
-        return weights
+        return weights.to(self.device)
 
 class Gen_Index(MessagePassing):
     """ A sequence of scene graph convolution layers  """
