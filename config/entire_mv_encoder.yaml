@@ -14,7 +14,7 @@ train:
   name: GAT
   epoch: 1000
   log_interval: 5
-  evaluation_interval: 10
+  evaluation_interval: 5
   save_interval: 20
   batch_size: 64
   workers: 12
@@ -44,7 +44,7 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 6
+  num_layers: 9
 
 optimizer:
   learning_rate: 0.001
