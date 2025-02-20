@@ -196,7 +196,10 @@ class BFeatVanillaTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+                tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
+                attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
+                
+                _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
@@ -207,8 +210,8 @@ class BFeatVanillaTrainer(BaseTrainer):
                         topk=101, use_clip=True, obj_topk=top_k_obj
                     )
                 
-                sgcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='triplet')
-                predcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='rels')
+                sgcls_recall = evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='triplet')
+                predcls_recall = evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='rels')
                 
                 sgcls_recall_list.append(sgcls_recall)
                 predcls_recall_list.append(predcls_recall)
