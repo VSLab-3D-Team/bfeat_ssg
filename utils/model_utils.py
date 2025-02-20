@@ -64,6 +64,49 @@ def build_mlp(dim_list, activation='relu', do_bn=False,
    return torch.nn.Sequential(*layers)
 
 
+class TFIDFMaskLayer(object):
+    """
+    This Module gets single batch of 3D Scene and calculates the attention mask w/ TF-IDF
+    Making rare classes more dominant in training scheme
+    """
+    def __init__(self, num_classes, device):
+        super(TFIDFMaskLayer, self).__init__()
+        self.device = device
+        self.num_classes = num_classes
+        self.idf_values = torch.zeros(num_classes)
+        
+    # Batch 안의 3D Scene 안에 object label c_i가 있는가?
+    ## batch_id를 통해서 같은 graph 안에 있는지 확인해야함.
+    ## 같은 graph 안에 있는 놈들 끼리 weight를 묶어야함.
+    def get_mask(
+        self, 
+        gt_obj_label: torch.Tensor, 
+        batch_ids: torch.Tensor
+    ):
+        """
+        Inputs:
+            - gt_obj_label: B X 1, labels
+            - batch_ids: B X 1, batch id 0 ~ bsz-1
+        Outputs:
+            - mask: TF-IDF based attention mask
+        """
+        bsz = batch_ids.max().item() + 1
+        class_counts = torch.bincount(gt_obj_label.flatten(), minlength=self.num_classes).float()
+        tf = class_counts / bsz
+        
+        doc_count = torch.zeros(self.num_classes)
+        for b in range(bsz):
+            batch_mask = torch.where(batch_ids == b)[0]
+            obj_label_batch = gt_obj_label[batch_mask]
+            count_batch = torch.bincount(obj_label_batch.flatten(), minlength=self.num_classes)
+            contains_class = (count_batch > 0).float()
+            doc_count += contains_class
+            
+        idf = torch.log((bsz + 1) / (1 + doc_count))
+        weights = tf * idf
+        weights = weights / (weights.sum() + 1e-6)  # 정규화
+        return weights
+
 class Gen_Index(MessagePassing):
     """ A sequence of scene graph convolution layers  """
     def __init__(self,flow="target_to_source"):

@@ -59,7 +59,8 @@ class BFeatVanillaGAT(torch.nn.Module):
         edge_feature_3d, 
         edge_index, 
         batch_ids, 
-        obj_center=None,  
+        obj_center=None,
+        attn_weight=None,
         istrain=False
     ):
 
@@ -89,6 +90,9 @@ class BFeatVanillaGAT(torch.nn.Module):
                 obj_distance_weight[:, :, count:count + len(idx_i), count:count + len(idx_i)] = dist_weights
 
                 count += len(idx_i)
+            
+            attn_weight = attn_weight.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            obj_distance_weight *= attn_weight
         else:
             obj_mask = None
             obj_distance = None

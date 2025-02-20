@@ -52,11 +52,12 @@ class BFeatVanillaNet(BaseNetwork):
         edge_pts, # remaining for other processing domain
         edge_indices: torch.Tensor, 
         descriptor: torch.Tensor, 
-        batch_ids=None
+        batch_ids=None,
+        attn_weight=None,
     ):
         with torch.no_grad():
             _obj_feats, _, _ = self.point_encoder(obj_pts)
-        obj_feats = _obj_feats.clone().detach()
+        obj_feats = _obj_feats.clone().detach() # B X N_feats
         
         x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
         geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
@@ -64,7 +65,7 @@ class BFeatVanillaNet(BaseNetwork):
         
         obj_center = descriptor[:, :3].clone()
         obj_gnn_feats, edge_gnn_feats = self.gat(
-            obj_feats, edge_feats, edge_indices, batch_ids, obj_center
+            obj_feats, edge_feats, edge_indices, batch_ids, obj_center, attn_weight
         )
         
         obj_pred = self.obj_classifier(obj_gnn_feats)

@@ -1,7 +1,7 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
 from runners.base_trainer import BaseTrainer
-from utils.contrastive_utils import ContrastiveFreqWeightedSampler, ContrastiveHybridTripletSampler
+from utils.model_utils import TFIDFMaskLayer
 from model.frontend.relextractor import *
 from model.models.model_vanilla import BFeatVanillaNet
 from model.loss import MultiLabelInfoNCELoss, ContrastiveSafeLoss
@@ -43,6 +43,7 @@ class BFeatVanillaTrainer(BaseTrainer):
             raise NotImplementedError
         # Loss function 
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
+        self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
         
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
@@ -64,7 +65,7 @@ class BFeatVanillaTrainer(BaseTrainer):
         weight = weight[1:]                
         return weight
     
-    def __dynamic_obj_weight(self, gt_obj_cls, alpha=0.7):
+    def __dynamic_obj_weight(self, gt_obj_cls, alpha=0.5):
         num_classes = len(self.obj_label_list)
         class_counts = torch.bincount(gt_obj_cls, minlength=num_classes).float()
         class_counts = class_counts + 1e-6  
@@ -108,7 +109,12 @@ class BFeatVanillaTrainer(BaseTrainer):
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+                
+                # TF-IDF Attention Mask Generation
+                tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
+                attn_tfidf_weight = gt_obj_label[tfidf_class] # N_obj X 1 
+                
+                edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
                 c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label, weight=obj_weight)
@@ -159,7 +165,7 @@ class BFeatVanillaTrainer(BaseTrainer):
     
     def evaluate_validation(self):
         n_iters = len(self.v_dataloader)
-        progbar = Progbar(n_iters, width=20, stateful_metrics=['Misc/it'])
+        progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/it'])
         loader = iter(self.v_dataloader)
         
         topk_obj_list, topk_rel_list, topk_triplet_list, cls_matrix_list = np.array([]), np.array([]), np.array([]), []
