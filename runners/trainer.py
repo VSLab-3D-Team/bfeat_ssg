@@ -112,7 +112,7 @@ class BFeatVanillaTrainer(BaseTrainer):
                 
                 # TF-IDF Attention Mask Generation
                 tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
-                attn_tfidf_weight = gt_obj_label[tfidf_class] # N_obj X 1 
+                attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
                 edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
