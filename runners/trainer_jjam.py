@@ -40,8 +40,8 @@ class BFeatJjamTongTrainer(BaseTrainer):
         # Loss function 
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
         self.intra_criterion = IntraModalBarlowTwinLoss().to(self.device)
-        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
-        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
+        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
         
         # Add trace meters
@@ -70,6 +70,14 @@ class BFeatJjamTongTrainer(BaseTrainer):
         weight[torch.where(weight==0)] = weight[0].clone() if not ignore_none_rel else 0
         weight = weight[1:]                
         return weight
+    
+    def __dynamic_obj_weight(self, gt_obj_cls, alpha=0.5):
+        num_classes = len(self.obj_label_list)
+        class_counts = torch.bincount(gt_obj_cls, minlength=num_classes).float()
+        class_counts = class_counts + 1e-6  
+        weights = 1.0 / (class_counts ** alpha)
+        weights = weights / weights.sum()
+        return weights
     
     def __data_augmentation(
         self, 
@@ -166,7 +174,8 @@ class BFeatJjamTongTrainer(BaseTrainer):
                 
                 # Classifer loss
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
-                c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label)
+                obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
+                c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label, weight=obj_weight)
                 c_rel_loss = F.binary_cross_entropy(rel_pred, gt_rel_label, weight=rel_weight)
                 
                 # Contrastive loss for Relationship extractor
