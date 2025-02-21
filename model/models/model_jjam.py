@@ -58,15 +58,15 @@ class BFeatJJamTongNet(BaseNetwork):
         attn_weight=None,
         is_train = True
     ):
-        if is_train:
-            bsz = obj_pts.shape[0] // 2
-            obj_feats_cat, _, _ = self.point_encoder(obj_pts)
-            obj_t1_feats = obj_feats_cat[:bsz, ...]
-            obj_t2_feats = obj_feats_cat[bsz:, ...]
+        # if is_train:
+        #     bsz = obj_pts.shape[0] // 2
+        #     obj_feats_cat, _, _ = self.point_encoder(obj_pts)
+        #     obj_t1_feats = obj_feats_cat[:bsz, ...]
+        #     obj_t2_feats = obj_feats_cat[bsz:, ...]
             
-            obj_feats = torch.stack([obj_t1_feats, obj_t2_feats]).mean(dim=0)
-        else:
-            obj_feats, _, _ = self.point_encoder(obj_pts)
+        #     obj_feats = torch.stack([obj_t1_feats, obj_t2_feats]).mean(dim=0)
+        # else:
+        obj_feats, trans, _ = self.point_encoder(obj_pts)
         
         x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
         geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
@@ -81,7 +81,7 @@ class BFeatJJamTongNet(BaseNetwork):
         rel_pred = self.rel_classifier(edge_gnn_feats)
         
         if is_train:
-            return obj_feats, edge_feats, obj_pred, rel_pred, obj_t1_feats, obj_t2_feats
+            return obj_gnn_feats, edge_gnn_feats, obj_pred, rel_pred, trans # obj_t1_feats, obj_t2_feats
         else:
             return obj_pred, rel_pred
         
