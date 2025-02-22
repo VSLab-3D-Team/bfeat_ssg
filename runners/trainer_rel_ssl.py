@@ -171,8 +171,8 @@ class BFeatRelSSLTrainer(BaseTrainer):
                     ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
                 if e % self.t_config.log_interval == 0:
-                    rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                     obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats.clone().detach())
+                    rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                     logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                     t_log += logs
                 progbar.add(1, values=t_log)
@@ -233,8 +233,8 @@ class BFeatRelSSLTrainer(BaseTrainer):
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 obj_feats, edge_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
-                rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                 obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats.clone().detach())
+                rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                 
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)

@@ -57,12 +57,9 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
         batch_ids=None
     ):
         with torch.no_grad():
-            _obj_feats, _, _ = self.point_encoder(obj_pts)
+            _obj_feats, _edge_feats = self.feature_encoder(obj_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
         obj_feats = _obj_feats.clone().detach()
-        
-        x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
-        geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-        edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        edge_feats = _edge_feats.clone().detach()
         
         obj_center = descriptor[:, :3].clone()
         obj_gnn_feats, edge_gnn_feats = self.gat(
@@ -74,4 +71,4 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
         obj_pred = self.obj_classifier(obj_gnn_feats)
         rel_pred = self.rel_classifier(edge_gnn_feats)
         
-        return edge_gnn_feats, tri_feats, obj_pred, rel_pred
+        return obj_pred, rel_pred, tri_feats
