@@ -73,7 +73,7 @@ class RelCosineClassifier():
         edge_feat = F.normalize(edge_feat, dim=-1)
         rel_feat_cls = F.normalize(rel_feat_cls, dim=-1)
         edge_pred = torch.einsum('bn,bcn->bc', edge_feat, rel_feat_cls)
-        return edge_pred # B_e X N_rel_cls
+        return torch.sigmoid(edge_pred) # B_e X N_rel_cls
 
 class ObjectClsMulti(BaseNetwork):
     def __init__(self, k, in_size, batch_norm=True, drop_out=True, init_weights=True):
