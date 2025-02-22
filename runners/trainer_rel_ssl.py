@@ -1,11 +1,10 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
-from utils.contrastive_utils import ContrastiveFreqWeightedSampler, ContrastiveHybridTripletSampler
 from utils.model_utils import rotation_matrix
 from runners.base_trainer import BaseTrainer
 from model.frontend.relextractor import *
 from model.models.model_rel_only import BFeatRelObjConNet
-from model.backend.classifier import RelCosineClassifier
+from model.backend.classifier import RelCosineClassifier, consine_classification_obj
 from model.loss import MultiLabelInfoNCELoss, IntraModalBarlowTwinLoss, SupervisedCrossModalInfoNCE
 import numpy as np
 import torch
@@ -13,7 +12,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import wandb
-import clip
 
 ## TODO: Relationship Feature Extractor Contrastive learning only
 class BFeatRelSSLTrainer(BaseTrainer):
@@ -140,7 +138,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
                 obj_aug_2 = self.__data_augmentation(obj_pts)
                 obj_pts_data = torch.cat([ obj_aug_1, obj_aug_2 ], dim=0)
                 obj_pts = obj_pts_data.transpose(2, 1).contiguous()
-                obj_feats, edge_feats, obj_pred, obj_t1_feats, obj_t2_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor)
+                obj_feats, edge_feats, obj_t1_feats, obj_t2_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor)
 
                 # Object Encoder Contrastive loss
                 text_feat = self.__get_text_feat(gt_obj_label)
@@ -174,6 +172,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
                 ]
                 if e % self.t_config.log_interval == 0:
                     rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
+                    obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats.clone().detach())
                     logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                     t_log += logs
                 progbar.add(1, values=t_log)
@@ -233,8 +232,9 @@ class BFeatRelSSLTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                obj_pred, edge_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
+                obj_feats, edge_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
                 rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
+                obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats.clone().detach())
                 
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)

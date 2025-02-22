@@ -3,6 +3,49 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_logsumexp
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class WeightedFocalLoss(nn.Module):
+    def __init__(self, alpha=1.0, gamma=2.0):
+        """
+        클래스 불균형을 고려한 Focal Loss 구현
+
+        class_weights: 클래스별 가중치 (Tensor 또는 None)
+        alpha: Focal Loss의 기본 가중치
+        gamma: Hard sample에 대한 가중치 조정
+        reduction: 'mean', 'sum', 또는 'none'
+        """
+        super(WeightedFocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(
+        self, 
+        inputs: torch.Tensor, 
+        targets: torch.Tensor, 
+        class_weights = None
+    ):
+        """
+        inputs: B X C
+        targets: B X 1
+        """
+        # Cross Entropy Loss 계산
+        ce_loss = F.cross_entropy(inputs, targets, weight=class_weights, reduction='none')
+
+        # 예측 확률 p_t 계산
+        probs = torch.softmax(inputs, dim=1)  # 확률값 변환
+        pt = probs.gather(1, targets.unsqueeze(1)).squeeze(1)  # 정답 클래스 확률 선택
+
+        # Focal Weight 계산
+        focal_weight = (1 - pt) ** self.gamma
+        focal_loss = self.alpha * class_weights * focal_weight * ce_loss
+
+        # 손실값 반환 방식 선택
+        return focal_loss.mean()
+
+
 class TripletLoss(nn.Module):
     def __init__(self, margin=0.2):
         super(TripletLoss, self).__init__()

@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class BFeatRelObjConNet(BaseNetwork):
-    def __init__(self, config, obj_gt_feat_mat, device):
+    def __init__(self, config, device):
         super(BFeatRelObjConNet, self).__init__()
         self.config = config
         self.t_config = config.train
@@ -20,7 +20,6 @@ class BFeatRelObjConNet(BaseNetwork):
         if self.m_config.use_normal:
             self.dim_pts += 3
         self.device = device
-        self.obj_gt_feat_mat = obj_gt_feat_mat
         
         self.point_encoder = PointNetEncoder(device, channel=9)
         # self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
@@ -54,13 +53,11 @@ class BFeatRelObjConNet(BaseNetwork):
         x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
         geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
         edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
-                
-        obj_pred = consine_classification_obj(self.obj_gt_feat_mat, obj_feats.clone().detach())
         
         if is_train:
-            return obj_feats, edge_feats, obj_pred, obj_t1_feats, obj_t2_feats
+            return obj_feats, edge_feats, obj_t1_feats, obj_t2_feats
         else:
-            return obj_pred, edge_feats
+            return obj_feats, edge_feats
 
 class BFeatRelOnlyNet(BaseNetwork):
     def __init__(self, config, obj_gt_feat_mat, device):

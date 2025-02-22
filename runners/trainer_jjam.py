@@ -40,7 +40,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
             raise NotImplementedError
         # Loss function 
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        # self.intra_criterion = IntraModalBarlowTwinLoss().to(self.device)
+        self.intra_criterion = IntraModalBarlowTwinLoss().to(self.device)
         self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
         self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
@@ -155,24 +155,23 @@ class BFeatJjamTongTrainer(BaseTrainer):
                 )
                 
                 self.optimizer.zero_grad()
-                # obj_aug_1 = self.__data_augmentation(obj_pts)
-                # obj_aug_2 = self.__data_augmentation(obj_pts)
-                # obj_pts_data = torch.cat([ obj_aug_1, obj_aug_2 ], dim=0)
-                obj_pts = obj_pts.transpose(2, 1).contiguous()
+                obj_aug_1 = self.__data_augmentation(obj_pts)
+                obj_aug_2 = self.__data_augmentation(obj_pts)
+                obj_pts_data = torch.cat([ obj_aug_1, obj_aug_2 ], dim=0)
+                obj_pts = obj_pts_data.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
                 attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
-                # obj_t1_feats, obj_t2_feats
-                obj_feats, edge_feats, obj_pred, rel_pred, trans = \
+                obj_feats, edge_feats, obj_pred, rel_pred, obj_t1_feats, obj_t2_feats = \
                     self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
                 
                 # Object Encoder Contrastive loss
                 text_feat = self.__get_text_feat(gt_obj_label)
-                loss_reg = feature_transform_reguliarzer(trans) # self.intra_criterion(obj_t1_feats, obj_t2_feats)  
+                loss_imbt = self.intra_criterion(obj_t1_feats, obj_t2_feats)  
                 loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, gt_obj_label, zero_mask)
                 loss_cm_text = self.cm_text_criterion(obj_feats, text_feat, gt_obj_label)
-                obj_loss = 0.1 * loss_reg + loss_cm_visual + loss_cm_text
+                obj_loss = 0.1 * loss_imbt + loss_cm_visual + loss_cm_text
                 
                 # Classifer loss
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
@@ -199,7 +198,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
                 self.meters['Train/Obj_Cls_Loss'].update(c_obj_loss.detach().item())
                 self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
                 self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
-                self.meters['Train/IMBT_Obj_Loss'].update(loss_reg.detach().item()) 
+                self.meters['Train/IMBT_Obj_Loss'].update(loss_imbt.detach().item()) 
                 self.meters['Train/CM_Visual_Loss'].update(loss_cm_visual.detach().item()) 
                 self.meters['Train/CM_Text_Loss'].update(loss_cm_text.detach().item()) 
                 t_log = [
