@@ -28,8 +28,8 @@ TAIL_PREDICATE_ID = [
 ]
 
 TAIL_PREDICATES_NAME = [
-    "bigger than",
-    "smaller than",
+    # "bigger than",
+    # "smaller than",
     "same symmetry as",
     "lying in",
     "connected to",

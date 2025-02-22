@@ -112,7 +112,7 @@ class MultiLabelInfoNCELoss(nn.Module):
         _mask.scatter_(0, rel_index.to(torch.int64).reshape(-1).unsqueeze(0), 1.0)
         
         sim_ap = torch.matmul(anchor, positive.T) / self.temperature  # B x M
-        sim_an = torch.einsum('nd,mkd->nmk', anchor, negative) / self.temperature  # B x M x 16
+        sim_an = torch.einsum('nd,mkd->nmk', anchor, negative) / self.temperature  # B x M x N_neg
         
         sim_ap_exp = torch.exp(sim_ap) # B X M
         sim_an_exp = torch.sum(torch.exp(sim_an), dim=-1) # B X M
