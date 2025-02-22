@@ -17,16 +17,14 @@ def consine_classification_obj(
     return obj_pred
 
 class RelCosineClassifier():
-    def __init__(self, relation_cls, object_cls, device, d_feats):
+    def __init__(self, emb_vec, relation_cls, object_cls, device, d_feats):
         self.object_cls = object_cls
         self.relation_cls = relation_cls
         self.device = device
         self.encoder, _ = clip.load("ViT-B/32", device=device)
-        N_emb_mat = len(self.object_cls)
-        self.embedding_vector_loader = torch.zeros(
-            (N_emb_mat, N_emb_mat, len(relation_cls), d_feats
-        ), dtype=torch.float32).to(device)
-        self.__build_embedding_storage()
+        # N_emb_mat = len(self.object_cls)
+        self.embedding_vector_loader = emb_vec
+        # self.__build_embedding_storage()
     
     @torch.no_grad()
     def __crazy_negative_embedding(self, token_vecs: torch.Tensor):

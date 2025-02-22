@@ -24,6 +24,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
         self.model = BFeatRelObjConNet(self.config, device).to(device)
         ## Contrastive loss only for Relationship Feature extractor
         self.rel_classifier = RelCosineClassifier(
+            self.embedding_vector_loader,
             self.rel_label_list, 
             self.obj_label_list, 
             self.device, d_feats=self.m_config.dim_edge_feats

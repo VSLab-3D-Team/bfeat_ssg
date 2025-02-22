@@ -1,8 +1,36 @@
-from pydoc import describe
+from typing import Union
+from config.define import *
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.data.sampler import Sampler
 from torch.utils.data.dataloader import _SingleProcessDataLoaderIter, _MultiProcessingDataLoaderIter
+from dataset.dataset_3dssg import SSGLWBFeat3D, SSGLWBFeat3DwMultiModal
 import numpy as np
+from tqdm import tqdm
+
+class SSGImbalanceSampler(Sampler):
+    def __init__(self, data_source: Union[SSGLWBFeat3D, SSGLWBFeat3DwMultiModal]):
+        super().__init__(data_source)
+        
+        self.indices = list(range(len(data_source)))
+        self.dataset = data_source
+        print("Calculating weights for oversampling...")
+        self.scan_weights = np.ones(len(self.dataset.scan_data))
+        for idx, scan in tqdm(enumerate(self.dataset.scan_data)):
+            relationship = scan["rel_json"]
+            for r in relationship:
+                _, _, pred_id, _ = r
+                if pred_id in TAIL_PREDICATE_ID:
+                    self.scan_weights[idx] += 1
+        self.scan_weights = self.scan_weights / self.scan_weights.sum()
+        self.scan_weights = torch.from_numpy(self.scan_weights)
+
+    def __iter__(self):
+        return iter(torch.multinomial(self.scan_weights, len(self.scan_weights), replacement=True))
+
+    def __len__(self):
+        return len(self.indices)
+
 
 class CustomSingleProcessDataLoaderIter(_SingleProcessDataLoaderIter):
     def __init__(self,loader):

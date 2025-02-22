@@ -4,7 +4,7 @@ from runners.base_trainer import BaseTrainer
 from utils.model_utils import TFIDFMaskLayer
 from model.frontend.relextractor import *
 from model.models.model_vanilla import BFeatVanillaNet
-from model.loss import MultiLabelInfoNCELoss, ContrastiveSafeLoss
+from model.loss import MultiLabelInfoNCELoss, ContrastiveSafeLoss, WeightedFocalLoss
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -42,6 +42,7 @@ class BFeatVanillaTrainer(BaseTrainer):
         else:
             raise NotImplementedError
         # Loss function 
+        self.f_criterion = WeightedFocalLoss()
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
         

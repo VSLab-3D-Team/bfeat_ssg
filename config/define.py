@@ -23,35 +23,25 @@ PREDICATE_CATEGORY = {
     "none": [0]
 }
 
-SYNONYM_LIST = {
-    1: ["carried by", "anchored by"],
-    2: ["left-hand", "leftward"], 
-    3: ["right-hand"],
-    4: ["in front of", "forward", "frontal"],
-    5: ["backward"], 
-    6: ["nearby", "adjacent to", "next to"],
-    7: ["within"],
-    8: ["larger than"], 
-    9: ["tinier than", "more compact than"],
-    10: ["above"],
-    11: ["below"], 
-    12: ["same shape as"],
-    13: ["not different with"],
-    14: [""], 
-    15: [],
-    16: [],
-    17: [], 
-    18: [],
-    19: [],
-    20: [], 
-    21: [],
-    22: [],
-    23: [], 
-    24: [],
-    25: [],
-    26: [],
-}
+TAIL_PREDICATE_ID = [
+    7, 8, 9, 12, 18, 19, 20, 21, 22, 23, 24, 25, 26
+]
 
+TAIL_PREDICATES_NAME = [
+    "bigger than",
+    "smaller than",
+    "same symmetry as",
+    "lying in",
+    "connected to",
+    "build in",
+    "belonging to",
+    "standing in",
+    "leaning against",
+    "cover",
+    "part of",
+    "hanging in",
+    "inside"
+]
 
 # 1. supported by
 # 2. left

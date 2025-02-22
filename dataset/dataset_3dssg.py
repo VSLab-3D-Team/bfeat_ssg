@@ -4,8 +4,7 @@ from utils.os_utils import read_3dssg_annotation
 from utils.data_utils import gen_descriptor
 import torch
 import numpy as np
-# from tqdm.contrib.concurrent import process_map
-# from tqdm import tqdm
+from tqdm import tqdm
 from glob import glob
 from itertools import product
 
@@ -43,9 +42,6 @@ class SSGLWBFeat3D(Dataset):
         
         self.relationship_json, self.objs_json, self.scans = relationship_json, objs_json, scans
         self.scan_data = scan_data
-        # Pre-load entire 3RScan/3DSSG dataset in main memory
-        ## Main memory capacity of experiment environment: 128GB
-        ## Required memory: about 85GB
         
     def __len__(self):
         return len(self.scan_data)
