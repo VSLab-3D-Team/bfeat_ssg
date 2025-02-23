@@ -27,7 +27,7 @@ class BFeatRelObjConNet(BaseNetwork):
             batch_norm=False, 
             input_transform=False,
             feature_transform=False,
-            out_size=784, 
+            out_size=512, 
             point_size=self.dim_pts
         )
         # self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
