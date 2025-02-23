@@ -40,7 +40,7 @@ class BaseTrainer(ABC):
             self.v_dataloader = CustomDataLoader(
                 self.d_config, 
                 self.v_dataset, 
-                batch_size=self.t_config.batch_size,
+                batch_size=1,
                 num_workers=self.t_config.workers,
                 shuffle=True,
                 drop_last=True,
@@ -73,7 +73,7 @@ class BaseTrainer(ABC):
             self.v_dataloader = CustomDataLoader(
                 self.d_config, 
                 self.v_dataset, 
-                batch_size=self.t_config.batch_size,
+                batch_size=1,
                 num_workers=self.t_config.workers,
                 shuffle=True,
                 drop_last=True,
