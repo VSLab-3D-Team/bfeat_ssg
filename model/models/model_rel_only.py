@@ -22,7 +22,14 @@ class BFeatRelObjConNet(BaseNetwork):
             self.dim_pts += 3
         self.device = device
         
-        self.point_encoder = PointNetfeat(out_size=784, point_size=9)
+        self.point_encoder = PointNetfeat(
+            global_feat=True, 
+            batch_norm=False, 
+            input_transform=False,
+            feature_transform=False,
+            out_size=784, 
+            point_size=self.dim_pts
+        )
         # self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
         # self.point_encoder = self.point_encoder.to(self.device).eval()
         
