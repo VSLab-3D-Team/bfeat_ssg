@@ -41,8 +41,8 @@ model:
   dim_geo_feats: 11 
   dim_attn: 512
   num_heads: 8
-  use_rgb: true
-  use_normal: true
+  use_rgb: false
+  use_normal: false
   flow: target_to_source
 
 optimizer:
