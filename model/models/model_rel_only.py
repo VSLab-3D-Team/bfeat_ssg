@@ -156,7 +156,7 @@ class BFeatGNNRelOnlyNet(BaseNetwork):
         batch_ids=None
     ):
         with torch.no_grad():
-            _obj_feats, _, _ = self.point_encoder(obj_pts)
+            _obj_feats = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach()
         
         x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
