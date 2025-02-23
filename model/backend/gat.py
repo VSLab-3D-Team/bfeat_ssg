@@ -91,8 +91,8 @@ class BFeatVanillaGAT(torch.nn.Module):
 
                 count += len(idx_i)
             
-            attn_weight = attn_weight.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-            obj_distance_weight *= attn_weight
+            # attn_weight = attn_weight.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            # obj_distance_weight *= attn_weight
         else:
             obj_mask = None
             obj_distance = None
