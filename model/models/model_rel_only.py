@@ -43,13 +43,13 @@ class BFeatRelObjConNet(BaseNetwork):
     ):
         if is_train:
             bsz = obj_pts.shape[0] // 2
-            obj_feats_cat = self.point_encoder(obj_pts)
+            obj_feats_cat, _, _ = self.point_encoder(obj_pts)
             obj_t1_feats = obj_feats_cat[:bsz, ...]
             obj_t2_feats = obj_feats_cat[bsz:, ...]
             
             obj_feats = torch.stack([obj_t1_feats, obj_t2_feats]).mean(dim=0)
         else:
-            obj_feats = self.point_encoder(obj_pts)
+            obj_feats, _, _ = self.point_encoder(obj_pts)
         
         x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
         geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
