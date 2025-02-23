@@ -46,7 +46,7 @@ class BFeatDownstreamNet(BaseNetwork):
         batch_ids=None
     ):
         with torch.no_grad():
-            _obj_feats, _edge_feats = self.feature_encoder(obj_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
+            _obj_feats, _edge_feats = self.feature_encoder(obj_pts, edge_indices, descriptor, is_train=False)
         obj_feats = _obj_feats.clone().detach()
         edge_feats = _edge_feats.clone().detach()
         
