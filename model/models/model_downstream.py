@@ -8,9 +8,9 @@ from model.models.baseline import BaseNetwork
 from utils.model_utils import Gen_Index
 import torch
 
-class BFeatTripletContrastvieGNN(BaseNetwork):
+class BFeatDownstreamNet(BaseNetwork):
     def __init__(self, config, n_obj_cls, n_rel_cls, device):
-        super(BFeatTripletContrastvieGNN, self).__init__()
+        super(BFeatDownstreamNet, self).__init__()
         self.config = config
         self.t_config = config.train
         self.m_config = config.model
@@ -22,6 +22,8 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
         self.device = device
         
         self.feature_encoder = BFeatRelObjConNet(config, device)
+        self.feature_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
+        self.feature_encoder = self.feature_encoder.eval()
         
         self.index_get = Gen_Index(flow=self.m_config.flow)
         self.gat = BFeatVanillaGAT(
@@ -32,19 +34,6 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
             depth=self.m_config.num_graph_update,
             DROP_OUT_ATTEN=self.t_config.drop_out
         ).to(self.device)
-        assert "triplet_feat_type" in self.m_config, "Triplet Contrastive Setting needs merging layer type: Concat or 1D Conv"
-        if self.m_config.triplet_feat_type == "1dconv":
-            self.triplet_encoder = TripletContrastiveConvLayer(
-                self.m_config.dim_obj_feats, 
-                self.m_config.num_layers
-            )
-        elif self.m_config.triplet_feat_type == "concat":
-            self.triplet_encoder = TripletContrastiveMLPLayer(
-                self.m_config.dim_obj_feats,
-                self.m_config.num_layers
-            )
-        else:
-            raise NotImplementedError
         
         self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
         self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
@@ -65,10 +54,8 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
         obj_gnn_feats, edge_gnn_feats = self.gat(
             obj_feats, edge_feats, edge_indices, batch_ids, obj_center
         )
-        sub_tri_feats, obj_tri_feats = self.index_get(obj_gnn_feats, edge_indices)
-        tri_feats = self.triplet_encoder(sub_tri_feats, edge_gnn_feats, obj_tri_feats)
         
         obj_pred = self.obj_classifier(obj_gnn_feats)
         rel_pred = self.rel_classifier(edge_gnn_feats)
         
-        return obj_pred, rel_pred, tri_feats
+        return obj_pred, rel_pred

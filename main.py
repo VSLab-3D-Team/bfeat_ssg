@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser(description="Training BFeat Architecture")
 parser.add_argument("--mode", type=str, default="train", choices=["train", "experiment"], help="Select mode for BFeat (train/evaluation)")
 parser.add_argument("--runners", 
     type=str, default="vanilla", 
-    choices=["vanilla", "skipobj", "jjamtong", "con_jjamtong", "con_relonly", "direct_gnn", "triplet_con", "aux_con"], 
+    choices=["vanilla", "skipobj", "jjamtong", "con_jjamtong", "con_relonly", "direct_gnn", "triplet_con", "aux_con", "finetune"], 
     help="Select running model"
 )
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
@@ -35,6 +35,8 @@ def train(config):
         trainer = BFeatTripletContrastiveTrainer(config, device)
     elif args.runners == "aux_con":
         trainer = BFeatContrastiveAuxTrainer(config, device)
+    elif args.runners == "finetune":
+        trainer = BFeatFinetuningTrainer(config, device)
     else:
         raise NotImplementedError
     trainer.train()
