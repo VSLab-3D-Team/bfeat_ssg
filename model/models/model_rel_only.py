@@ -1,4 +1,5 @@
 from model.frontend.pointnet import PointNetEncoder
+from model.frontend.pointnet_vlsat import PointNetfeat
 from model.backend.gat import BFeatVanillaGAT
 from model.frontend.relextractor import *
 from model.backend.classifier import consine_classification_obj
@@ -21,7 +22,7 @@ class BFeatRelObjConNet(BaseNetwork):
             self.dim_pts += 3
         self.device = device
         
-        self.point_encoder = PointNetEncoder(device, channel=9)
+        self.point_encoder = PointNetfeat(out_size=784, point_size=9)
         # self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
         # self.point_encoder = self.point_encoder.to(self.device).eval()
         
