@@ -49,7 +49,7 @@ class BFeatContrastiveAuxTrainer(BaseTrainer):
         
         # Add trace meters
         self.add_meters([
-            "Train/Triplet_Contrastive_Loss",
+            # "Train/Triplet_Contrastive_Loss",
             "Train/CM_Visual_Loss", # Cross-Modal 3D-2D contrastive loss
             "Train/CM_Text_Loss"    # Cross-Modal 3D-Text contrastive loss
         ])
@@ -162,7 +162,8 @@ class BFeatContrastiveAuxTrainer(BaseTrainer):
                 # tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
                 # attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
-                obj_feature_con, edge_feature_con, tri_feats, obj_pred, rel_pred = \
+                # tri_feats, 
+                obj_feature_con, edge_feature_con, obj_pred, rel_pred = \
                     self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 
                 # Object Encoder Contrastive loss
@@ -182,8 +183,8 @@ class BFeatContrastiveAuxTrainer(BaseTrainer):
                 contrastive_loss = self.c_criterion(edge_feature_con, pos_pair, neg_pair, rel_indices)
                 
                 # Contrastive loss for triplet 
-                pos_tri_pair, neg_tri_pair, rel_tri_indices = self.triplet_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
-                tri_contrastive_loss = self.c_criterion(tri_feats, pos_tri_pair, neg_tri_pair, rel_tri_indices)
+                # pos_tri_pair, neg_tri_pair, rel_tri_indices = self.triplet_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
+                # tri_contrastive_loss = self.c_criterion(tri_feats, pos_tri_pair, neg_tri_pair, rel_tri_indices)
                 
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
@@ -194,8 +195,8 @@ class BFeatContrastiveAuxTrainer(BaseTrainer):
                 t_loss = lambda_o * c_obj_loss \
                     + lambda_r * c_rel_loss \
                     + lambda_c * contrastive_loss \
-                    + lambda_oc * obj_loss \
-                    + lambda_tc * tri_contrastive_loss
+                    + lambda_oc * obj_loss 
+                    # + lambda_tc * tri_contrastive_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -204,12 +205,12 @@ class BFeatContrastiveAuxTrainer(BaseTrainer):
                 self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
                 self.meters['Train/CM_Visual_Loss'].update(loss_cm_visual.detach().item()) 
                 self.meters['Train/CM_Text_Loss'].update(loss_cm_text.detach().item()) 
-                self.meters['Train/Triplet_Contrastive_Loss'].update(tri_contrastive_loss.detach().item()) 
+                # self.meters['Train/Triplet_Contrastive_Loss'].update(tri_contrastive_loss.detach().item()) 
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
                     ("train/contrastive_loss", contrastive_loss.detach().item()),
-                    ("train/triplet_con_loss", tri_contrastive_loss.detach().item()),
+                    # ("train/triplet_con_loss", tri_contrastive_loss.detach().item()),
                     ("train/obj_feat_loss", obj_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
                     ("Misc/epo", int(e)),
@@ -279,7 +280,7 @@ class BFeatContrastiveAuxTrainer(BaseTrainer):
                 # tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
                 # attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
-                _, _, _, obj_pred, rel_pred = \
+                _, _, obj_pred, rel_pred = \
                     self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids, is_train=False)
                 
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)

@@ -69,19 +69,19 @@ class BFeatAuxContrastvieGNN(BaseNetwork):
             depth=self.m_config.num_graph_update,
             DROP_OUT_ATTEN=self.t_config.drop_out
         ).to(self.device)
-        assert "triplet_feat_type" in self.m_config, "Triplet Contrastive Setting needs merging layer type: Concat or 1D Conv"
-        if self.m_config.triplet_feat_type == "1dconv":
-            self.triplet_encoder = TripletContrastiveConvLayer(
-                self.m_config.dim_obj_feats, 
-                self.m_config.num_layers
-            )
-        elif self.m_config.triplet_feat_type == "concat":
-            self.triplet_encoder = TripletContrastiveMLPLayer(
-                self.m_config.dim_obj_feats,
-                self.m_config.num_layers
-            )
-        else:
-            raise NotImplementedError
+        # assert "triplet_feat_type" in self.m_config, "Triplet Contrastive Setting needs merging layer type: Concat or 1D Conv"
+        # if self.m_config.triplet_feat_type == "1dconv":
+        #     self.triplet_encoder = TripletContrastiveConvLayer(
+        #         self.m_config.dim_obj_feats, 
+        #         self.m_config.num_layers
+        #     )
+        # elif self.m_config.triplet_feat_type == "concat":
+        #     self.triplet_encoder = TripletContrastiveMLPLayer(
+        #         self.m_config.dim_obj_feats,
+        #         self.m_config.num_layers
+        #     )
+        # else:
+        #     raise NotImplementedError
         
         self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
         self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
@@ -110,10 +110,10 @@ class BFeatAuxContrastvieGNN(BaseNetwork):
             discriptor=descriptor, 
             istrain=is_train
         )
-        sub_tri_feats, obj_tri_feats = self.index_get(obj_feature_con, edge_indices)
-        tri_feats = self.triplet_encoder(sub_tri_feats, edge_feature_con, obj_tri_feats)
+        # sub_tri_feats, obj_tri_feats = self.index_get(obj_feature_con, edge_indices)
+        # tri_feats = self.triplet_encoder(sub_tri_feats, edge_feature_con, obj_tri_feats)
         
         obj_pred = self.obj_classifier(obj_feature_sgg)
         rel_pred = self.rel_classifier(edge_feature_ssg)
         
-        return obj_feature_con, edge_feature_con, tri_feats, obj_pred, rel_pred
+        return obj_feature_con, edge_feature_con, obj_pred, rel_pred # tri_feats, 
