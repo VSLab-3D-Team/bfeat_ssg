@@ -27,16 +27,30 @@ class BFeatRelObjConNet(BaseNetwork):
         # self.point_encoder = self.point_encoder.to(self.device).eval()
         
         self.index_get = Gen_Index(flow=self.m_config.flow)
-        self.relation_encoder = RelFeatNaiveExtractor(
-            self.m_config.dim_obj_feats,
-            self.m_config.dim_geo_feats,
-            self.m_config.dim_edge_feats,
-            self.m_config.num_layers
-        ).to(self.device)
+        if self.m_config.relation_type == "pointnet":
+            self.relation_encoder = RelFeatPointExtractor(
+                config, device
+            )
+        elif self.m_config.relation_type == "resnet":
+            self.relation_encoder = RelFeatNaiveExtractor(
+                self.m_config.dim_obj_feats,
+                self.m_config.dim_geo_feats,
+                self.m_config.dim_edge_feats,
+                num_layers=self.m_config.num_layers
+            ).to(self.device)
+        elif self.m_config.relation_type == "1dconv":
+            self.relation_encoder = RelFeatMergeExtractor(
+                self.m_config.dim_obj_feats,
+                self.m_config.dim_geo_feats,
+                self.m_config.dim_edge_feats
+            ).to(self.device)
+        else:
+            raise NotImplementedError
         
     def forward(
         self, 
         obj_pts: torch.Tensor, 
+        edge_pts: torch.Tensor, # remaining for other processing domain
         edge_indices: torch.Tensor, 
         descriptor: torch.Tensor, 
         is_train = True
@@ -51,9 +65,12 @@ class BFeatRelObjConNet(BaseNetwork):
         else:
             obj_feats, _, _ = self.point_encoder(obj_pts)
         
-        x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
-        geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-        edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        if not self.m_config.relation_type == "pointnet":
+            x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
+            geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
+            edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        else:
+            edge_feats = self.relation_encoder(edge_pts)
         
         if is_train:
             return obj_feats, edge_feats, obj_t1_feats, obj_t2_feats

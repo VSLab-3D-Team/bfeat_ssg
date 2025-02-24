@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from model.models.baseline import ResidualBlock
+from model.frontend.pointnet import PointNetEncoder
 
 class RelFeatNaiveExtractor(nn.Module):
     def __init__(self, input_dim, geo_dim, out_dim, num_layers=6):
@@ -44,17 +45,20 @@ class RelFeatMergeExtractor(nn.Module):
         edge_init_feats = self.merge_layer(m_ij).squeeze(1) # B X 512
         return edge_init_feats # think novel method
 
-## Discarded.
-## 우선, High frequency information을 잘 capture할 수 있도록 고안된 모듈임
-## 그걸 위해서 kernel trick을 활용하는 것일 뿐이다.
-## 하지만, 우리는 high frequency feature가 필요한 것이 아니라, classification 문제를 풀어내는 것이 목표이다.
-## 따라서, fourier feature 안은 폐기한다. (25/01/31)
-## 혹시 모르니 함 해보자... (25/02/03)
-class RelFeatFreqExtractor(nn.Module):
-    def __init__(self, config):
-        super(RelFeatFreqExtractor, self).__init__()
+class RelFeatPointExtractor(nn.Module):
+    def __init__(self, config, device):
+        super(RelFeatPointExtractor, self).__init__()
         self.config = config
-    
-    def forward(self, x_i, x_j):
+        self.m_config = config.model
+        self.dim_pts = 3
+        if self.m_config.use_rgb:
+            self.dim_pts += 3
+        if self.m_config.use_normal:
+            self.dim_pts += 3
+        self.device = device
+        self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
         
-        pass
+        
+    def forward(self, rel_pts):
+        rel_feats, _, _ = self.point_encoder(rel_pts)
+        return rel_feats

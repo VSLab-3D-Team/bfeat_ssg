@@ -139,7 +139,8 @@ class BFeatRelSSLTrainer(BaseTrainer):
                 obj_aug_2 = self.__data_augmentation(obj_pts)
                 obj_pts_data = torch.cat([ obj_aug_1, obj_aug_2 ], dim=0)
                 obj_pts = obj_pts_data.transpose(2, 1).contiguous()
-                obj_feats, edge_feats, obj_t1_feats, obj_t2_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor)
+                rel_pts = rel_pts.transpose(2, 1).contiguous()
+                obj_feats, edge_feats, obj_t1_feats, obj_t2_feats = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor)
 
                 # Object Encoder Contrastive loss
                 text_feat = self.__get_text_feat(gt_obj_label)
@@ -233,7 +234,7 @@ class BFeatRelSSLTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                obj_feats, edge_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
+                obj_feats, edge_feats = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
                 obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats.clone().detach())
                 rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                 

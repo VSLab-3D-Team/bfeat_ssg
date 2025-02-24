@@ -26,12 +26,26 @@ class BFeatVanillaNet(BaseNetwork):
         self.point_encoder = self.point_encoder.to(self.device).eval()
         
         self.index_get = Gen_Index(flow=self.m_config.flow)
-        self.relation_encoder = RelFeatNaiveExtractor(
-            self.m_config.dim_obj_feats,
-            self.m_config.dim_geo_feats,
-            self.m_config.dim_edge_feats,
-            num_layers=self.m_config.num_layers
-        ).to(self.device)
+        assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
+        if self.m_config.relation_type == "pointnet":
+            self.relation_encoder = RelFeatPointExtractor(
+                config, device
+            )
+        elif self.m_config.relation_type == "resnet":
+            self.relation_encoder = RelFeatNaiveExtractor(
+                self.m_config.dim_obj_feats,
+                self.m_config.dim_geo_feats,
+                self.m_config.dim_edge_feats,
+                num_layers=self.m_config.num_layers
+            ).to(self.device)
+        elif self.m_config.relation_type == "1dconv":
+            self.relation_encoder = RelFeatMergeExtractor(
+                self.m_config.dim_obj_feats,
+                self.m_config.dim_geo_feats,
+                self.m_config.dim_edge_feats
+            ).to(self.device)
+        else:
+            raise NotImplementedError
         
         self.gat = BFeatVanillaGAT(
             self.m_config.dim_obj_feats,
@@ -49,7 +63,7 @@ class BFeatVanillaNet(BaseNetwork):
     def forward(
         self, 
         obj_pts: torch.Tensor, 
-        edge_pts, # remaining for other processing domain
+        edge_pts: torch.Tensor, # remaining for other processing domain
         edge_indices: torch.Tensor, 
         descriptor: torch.Tensor, 
         batch_ids=None,
@@ -59,10 +73,13 @@ class BFeatVanillaNet(BaseNetwork):
             _obj_feats, _, _ = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach() # B X N_feats
         
-        x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
-        geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-        edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
-        
+        if not self.m_config.relation_type == "pointnet":
+            x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
+            geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
+            edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        else:
+            edge_feats = self.relation_encoder(edge_pts)
+            
         obj_center = descriptor[:, :3].clone()
         obj_gnn_feats, edge_gnn_feats = self.gat(
             obj_feats, edge_feats, edge_indices, batch_ids, obj_center, attn_weight

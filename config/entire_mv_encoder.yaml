@@ -45,6 +45,7 @@ model:
   use_normal: true
   flow: target_to_source
   num_layers: 9
+  relation_type: "pointnet"
 
 optimizer:
   learning_rate: 0.001
