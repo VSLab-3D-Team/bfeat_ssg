@@ -25,7 +25,11 @@ class BFeatDirectGNNNet(BaseNetwork):
         self.point_encoder = self.point_encoder.to(self.device).eval()
         
         assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
-        if self.m_config.relation_type == "resnet":
+        if self.m_config.relation_type == "pointnet":
+            self.relation_encoder = RelFeatPointExtractor(
+                config, device
+            )
+        elif self.m_config.relation_type == "resnet":
             self.relation_encoder = RelFeatNaiveExtractor(
                 self.m_config.dim_obj_feats,
                 self.m_config.dim_geo_feats,
@@ -58,6 +62,7 @@ class BFeatDirectGNNNet(BaseNetwork):
     def forward(
         self, 
         obj_pts: torch.Tensor, 
+        edge_pts: torch.Tensor, 
         edge_indices: torch.Tensor, 
         descriptor: torch.Tensor, 
         batch_ids=None
@@ -66,9 +71,12 @@ class BFeatDirectGNNNet(BaseNetwork):
             _obj_feats, _, _ = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach()
         
-        x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
-        geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-        edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        if not self.m_config.relation_type == "pointnet":
+            x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
+            geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
+            edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        else:
+            edge_feats = self.relation_encoder(edge_pts)
         
         obj_center = descriptor[:, :3].clone()
         obj_gnn_feats, edge_gnn_feats = self.gat(

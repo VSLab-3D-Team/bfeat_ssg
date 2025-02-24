@@ -164,7 +164,7 @@ class SSGLWBFeat3D(Dataset):
             obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
             obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
             
-            edge_pts = np.concatenate([obj_pts_1, obj_pts_2], axis=-1) # dim: N_pts X (2 * self.dim_pts)
+            edge_pts = np.concatenate([obj_pts_1, obj_pts_2], axis=0) # dim: (2 * N_pts) X self.dim_pts
             
             if self.config.multi_rel:
                 gt_rels[e,:] = adj_matrix_onehot[index1,index2,:]
