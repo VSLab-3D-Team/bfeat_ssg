@@ -1,6 +1,6 @@
 dataset:
-  num_edge_points: 512
-  num_points_reg: 256
+  num_edge_points: 256
+  num_points_reg: 128
   num_mv_vecs: 5
   use_data_augmentation: true
   multi_rel: true
@@ -16,8 +16,8 @@ train:
   log_interval: 5
   evaluation_interval: 5
   save_interval: 20
-  batch_size: 64
-  workers: 12
+  batch_size: 8
+  workers: 8
   wandb_path: ./wandb
   wandb_project: bfeat_sg_finetune
   none_ratio: 0.1
@@ -44,8 +44,9 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 12
+  num_layers: 9
+  relation_type: "pointnet"
 
 optimizer:
-  learning_rate: 0.001
+  learning_rate: 0.0001
   weight_decay: 0.0001
