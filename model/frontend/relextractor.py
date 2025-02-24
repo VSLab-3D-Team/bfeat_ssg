@@ -56,7 +56,7 @@ class RelFeatPointExtractor(nn.Module):
         if self.m_config.use_normal:
             self.dim_pts += 3
         self.device = device
-        self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
+        self.point_encoder = PointNetEncoder(device, channel=3)
         
         
     def forward(self, rel_pts):
