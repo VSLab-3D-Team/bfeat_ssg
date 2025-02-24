@@ -10,7 +10,7 @@ dataset:
   seed: 2025
 
 train:
-  ckp_path: ./model_checkpoints/frontend_pretrain_0223_17.pth
+  ckp_path: ./model_checkpoints/frontend_pretrain_0225_02.pth
   name: GAT
   epoch: 1000
   log_interval: 5
@@ -24,7 +24,7 @@ train:
   drop_out: 0.5
   verbose: true
   meter: average
-  scheduler: 'cyclic'
+  scheduler: 'cosine'
   num_negative_sample: 8
   sampler: 'frequency'
   freq_temperature: 0.3 

@@ -101,7 +101,8 @@ class BFeatFinetuningTrainer(BaseTrainer):
                 
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
-                obj_pred, rel_pred = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+                rel_pts = rel_pts.transpose(2, 1).contiguous()
+                obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label)
                 c_rel_loss = F.binary_cross_entropy(rel_pred, gt_rel_label, weight=rel_weight)
@@ -109,7 +110,6 @@ class BFeatFinetuningTrainer(BaseTrainer):
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
-                lambda_c = self.t_config.lambda_con # 0.1
                 t_loss = lambda_o * c_obj_loss \
                     + lambda_r * c_rel_loss
                 t_loss.backward()
@@ -177,7 +177,8 @@ class BFeatFinetuningTrainer(BaseTrainer):
                 ) = self.to_device(obj_pts, rel_pts, descriptor, gt_rel_label, gt_obj_label, edge_indices, batch_ids)
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
-                obj_pred, rel_pred = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+                rel_pts = rel_pts.transpose(2, 1).contiguous()
+                obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)

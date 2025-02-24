@@ -41,12 +41,13 @@ class BFeatDownstreamNet(BaseNetwork):
     def forward(
         self, 
         obj_pts: torch.Tensor, 
+        edge_pts: torch.Tensor, # remaining for other processing domain
         edge_indices: torch.Tensor, 
         descriptor: torch.Tensor, 
         batch_ids=None
     ):
         with torch.no_grad():
-            _obj_feats, _edge_feats = self.feature_encoder(obj_pts, edge_indices, descriptor, is_train=False)
+            _obj_feats, _edge_feats = self.feature_encoder(obj_pts, edge_pts, edge_indices, descriptor, is_train=False)
         obj_feats = _obj_feats.clone().detach()
         edge_feats = _edge_feats.clone().detach()
         
