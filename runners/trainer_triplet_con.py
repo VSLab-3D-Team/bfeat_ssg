@@ -32,7 +32,7 @@ class BFeatTripletContrastiveTrainer(BaseTrainer):
             lr=self.opt_config.learning_rate, 
             weight_decay=self.opt_config.weight_decay
         )
-        if self.t_config.scheduler == "consine":
+        if self.t_config.scheduler == "cosine":
             self.lr_scheduler = CosineAnnealingLR(self.optimizer, T_max=self.t_config.epoch, eta_min=0, last_epoch=-1)
         elif self.t_config.scheduler == 'cyclic':
             self.lr_scheduler = CyclicLR(

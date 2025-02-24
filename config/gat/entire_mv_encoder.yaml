@@ -24,7 +24,7 @@ train:
   drop_out: 0.5
   verbose: true
   meter: average
-  scheduler: 'cyclic'
+  scheduler: 'cosine'
   num_negative_sample: 8
   sampler: 'frequency'
   freq_temperature: 0.3 
@@ -48,5 +48,5 @@ model:
   relation_type: "pointnet"
 
 optimizer:
-  learning_rate: 0.001
+  learning_rate: 0.0001
   weight_decay: 0.0001
