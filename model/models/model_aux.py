@@ -20,7 +20,7 @@ class SGGFeatureEncoder(BaseNetwork):
             self.dim_pts += 3
         self.device = device
         
-        self.point_encoder = PointNetEncoder(device, channel=9)
+        self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
         self.index_get = Gen_Index(flow=self.m_config.flow)
         self.relation_encoder = RelFeatNaiveExtractor(
             self.m_config.dim_obj_feats,

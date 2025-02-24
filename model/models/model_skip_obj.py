@@ -21,7 +21,7 @@ class BFeatSkipObjNet(BaseNetwork):
             self.dim_pts += 3
         self.device = device
         
-        self.point_encoder = PointNetEncoder(device, channel=9)
+        self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
         self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
         self.point_encoder = self.point_encoder.to(self.device).eval()
         
