@@ -1,6 +1,6 @@
 dataset:
-  num_edge_points: 512
-  num_points_reg: 256
+  num_edge_points: 256
+  num_points_reg: 128
   num_mv_vecs: 5
   use_data_augmentation: true
   multi_rel: true
