@@ -16,8 +16,8 @@ train:
   log_interval: 5
   evaluation_interval: 10
   save_interval: 20
-  batch_size: 64
-  workers: 12
+  batch_size: 32
+  workers: 8
   wandb_path: ./wandb
   wandb_project: bfeat_sg_con_jjamtong
   none_ratio: 0.1
@@ -45,7 +45,8 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 12
+  num_layers: 9
+  relation_type: "pointnet"
 
 optimizer:
   learning_rate: 0.001

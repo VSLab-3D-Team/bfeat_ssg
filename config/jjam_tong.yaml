@@ -17,7 +17,7 @@ train:
   evaluation_interval: 10
   save_interval: 20
   batch_size: 32
-  workers: 12
+  workers: 8
   wandb_path: ./wandb
   wandb_project: bfeat_sg_jjamtong
   none_ratio: 0.1
