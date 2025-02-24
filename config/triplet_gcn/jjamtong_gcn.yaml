@@ -14,12 +14,12 @@ train:
   name: GAT
   epoch: 1000
   log_interval: 5
-  evaluation_interval: 10
+  evaluation_interval: 5
   save_interval: 20
-  batch_size: 32
+  batch_size: 8
   workers: 8
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_jjamtong
+  wandb_project: bfeat_sg_jjam_gcn
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true

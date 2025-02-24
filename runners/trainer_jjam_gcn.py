@@ -4,8 +4,8 @@ from runners.base_trainer import BaseTrainer
 from utils.model_utils import rotation_matrix, TFIDFMaskLayer
 from model.frontend.relextractor import *
 from model.frontend.pointnet import feature_transform_reguliarzer
-from model.models.model_jjam import BFeatJJamTongNet
-from model.loss import MultiLabelInfoNCELoss, IntraModalBarlowTwinLoss, SupervisedCrossModalInfoNCE, CrossModalInfoNCE
+from model.models.model_jjam_gcn import BFeatJJamTongTripletGCNNet
+from model.loss import MultiLabelInfoNCELoss, IntraModalBarlowTwinLoss, SupervisedCrossModalInfoNCE
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -14,13 +14,13 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import clip
 import wandb
 
-class BFeatJjamTongTrainer(BaseTrainer):
+class BFeatJjamTongTripletGCNTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device, multi_view_ssl=True)
         
         self.m_config = config.model
         # Model Definitions
-        self.model = BFeatJJamTongNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
+        self.model = BFeatJJamTongTripletGCNNet(self.config, self.num_obj_class, self.num_rel_class, device).to(device)
         
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(
@@ -160,11 +160,9 @@ class BFeatJjamTongTrainer(BaseTrainer):
                 obj_pts_data = torch.cat([ obj_aug_1, obj_aug_2 ], dim=0)
                 obj_pts = obj_pts_data.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
-                attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
                 obj_feats, edge_feats, obj_pred, rel_pred, obj_t1_feats, obj_t2_feats = \
-                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
+                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor)
                 
                 # Object Encoder Contrastive loss
                 text_feat = self.__get_text_feat(gt_obj_label)
@@ -223,7 +221,7 @@ class BFeatJjamTongTrainer(BaseTrainer):
                     self.save_checkpoint(self.exp_name, "best_model.pth")
                     val_metric = mRecall_50
                 if e % self.t_config.save_interval == 0:
-                    self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))
+                    self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))            
 
             self.wandb_log["Train/learning_rate"] = self.lr_scheduler.get_last_lr()[0]
             self.write_wandb_log()
@@ -271,11 +269,9 @@ class BFeatJjamTongTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
-                attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
                 obj_pred, rel_pred= \
-                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight, is_train=False)
+                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
                 
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)

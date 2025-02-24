@@ -284,6 +284,8 @@ class BFeatVanillaTrainer(BaseTrainer):
                 ("Predcls@50", predcls_recall[1]),
                 ("Predcls@100", predcls_recall[2]),
             ]
+            progbar.add(1, values=logs)
+            
             self.wandb_log["Validation/Acc@1/obj_cls"] = obj_acc_1
             self.wandb_log["Validation/Acc@5/obj_cls"] = obj_acc_5
             self.wandb_log["Validation/Acc@10/obj_cls"] = obj_acc_10

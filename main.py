@@ -9,9 +9,9 @@ parser = argparse.ArgumentParser(description="Training BFeat Architecture")
 parser.add_argument("--mode", type=str, default="train", choices=["train", "experiment"], help="Select mode for BFeat (train/evaluation)")
 parser.add_argument("--runners", 
     type=str, default="vanilla", 
-    choices=["vanilla", "skipobj", "jjamtong", "con_jjamtong", "con_relonly", "direct_gnn", "triplet_con", "aux_con", "finetune"], 
+    choices=["vanilla", "jjamtong", "con_jjamtong", "direct_gnn", "finetune", "triplet_gcn", "jjamtong_gcn", "sgg_point", "jjamtong_point"], 
     help="Select running model"
-)
+) # "skipobj", "con_relonly", "triplet_con", "aux_con", 
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
 parser.add_argument("--exp_explain", type=str, default="default", help="Runtime configuration file path")
 parser.add_argument("--resume", type=str, help="Resume training from checkpoint")
@@ -21,22 +21,30 @@ def train(config):
     device = "cuda"
     if args.runners == "vanilla":
         trainer = BFeatVanillaTrainer(config, device)
-    elif args.runners == "skipobj":
-        trainer = BFeatSkipObjTrainer(config, device)
+    # elif args.runners == "skipobj":
+    #     trainer = BFeatSkipObjTrainer(config, device)
     elif args.runners == "jjamtong":
         trainer = BFeatJjamTongTrainer(config, device)
     elif args.runners == "con_jjamtong":
         trainer = BFeatRelSSLTrainer(config, device)
-    elif args.runners == "con_relonly":
-        trainer = BFeatRelOnlyContrasTrainer(config, device)
+    # elif args.runners == "con_relonly":
+    #     trainer = BFeatRelOnlyContrasTrainer(config, device)
     elif args.runners == "direct_gnn":
         trainer = BFeatDirectGNNTrainer(config, device)
-    elif args.runners == "triplet_con":
-        trainer = BFeatTripletContrastiveTrainer(config, device)
-    elif args.runners == "aux_con":
-        trainer = BFeatContrastiveAuxTrainer(config, device)
+    # elif args.runners == "triplet_con":
+    #     trainer = BFeatTripletContrastiveTrainer(config, device)
+    # elif args.runners == "aux_con":
+    #     trainer = BFeatContrastiveAuxTrainer(config, device)
     elif args.runners == "finetune":
         trainer = BFeatFinetuningTrainer(config, device)
+    elif args.runners == "triplet_gcn":
+        trainer = BFeatTripletGCNTrainer(config, device)
+    elif args.runners == "jjamtong_gcn":
+        trainer = BFeatJjamTongTripletGCNTrainer(config, device)
+    elif args.runners == "sgg_point":
+        trainer = BFeatSGGPointTrainer(config, device)
+    elif args.runners == "jjamtong_point":
+        trainer = BFeatJjamTongSGGPointTrainer(config, device)
     else:
         raise NotImplementedError
     trainer.train()
@@ -48,10 +56,12 @@ def experiment(config):
 
 if __name__ == "__main__":
     # mp.set_start_method("spawn", force=True)
-    with initialize(config_path="./config"):
+    conf_name = args.config.split("/")[-1]
+    conf_path = "/".join(args.config.split("/")[:-1])
+    with initialize(config_path=conf_path):
         override_list = [] if not args.resume else [f"+resume={args.resume}"]
         override_list.append(f"+exp_desc={args.exp_explain}")
-        config = compose(config_name=args.config, overrides=override_list)
+        config = compose(config_name=conf_name, overrides=override_list)
     
     runtime_mode = args.mode
     if runtime_mode == "train":
