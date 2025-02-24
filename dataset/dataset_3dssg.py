@@ -202,7 +202,7 @@ class SSGLWBFeat3D(Dataset):
             index = np.random.randint(self.__len__())
             obj_pts, rel_pts, descriptor, gt_rels, gt_class, edge_indices = self.__getitem__(index)
         
-        return obj_pts[..., :self.dim_pts], rel_pts[..., :self.dim_pts], descriptor, gt_rels, gt_class, edge_indices
+        return obj_pts[..., :self.dim_pts], rel_pts[..., :3], descriptor, gt_rels, gt_class, edge_indices
 
 class SSGLWBFeat3DwMultiModal(Dataset):
     def __init__(
