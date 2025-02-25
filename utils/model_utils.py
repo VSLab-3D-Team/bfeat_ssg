@@ -165,9 +165,9 @@ class TFIDFTripletWeight(object):
             sub_label, obj_label = gt_obj_label[idx_eo], gt_obj_label[idx_os]
             edge_label = gt_rel_label[e_id]
             _mask_rel = (edge_label == 1)
-            edge_weight[e_id] = (tf[sub_label, _mask_rel, obj_label] * idf[sub_label, _mask_rel, obj_label]).sum()
+            edge_weight[e_id] = torch.prod(tf[sub_label, _mask_rel, obj_label] * idf[sub_label, _mask_rel, obj_label])
         
-        edge_weight = edge_weight / (1e-6 + edge_weight.sum()) # N_edge X 1
+        edge_weight = edge_weight / (1e-6 + edge_weight.sum()) # N_edge X 1 \in [0, 1]
         return edge_weight
 
 class Gen_Index(MessagePassing):
