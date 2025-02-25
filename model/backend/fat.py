@@ -110,7 +110,7 @@ class MultiHeadedEdgeAttention(torch.nn.Module):
             query = self.proj_query(query).view(batch_dim, self.d_n, self.num_heads)
             edge = self.proj_edge(edge).view(batch_dim, self.d_e, self.num_heads)
             if not weight == None:
-                edge = weight * edge
+                edge = weight[:, None, None].repeat(1, self.d_e, self.num_heads) * edge
             if self.use_edge:
                 prob = self.nn(torch.cat([query,edge],dim=1)) # b, dim, head    
             else:

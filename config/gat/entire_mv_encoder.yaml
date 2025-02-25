@@ -34,7 +34,7 @@ train:
   lambda_con: 1.0
 
 model:
-  num_graph_update: 2 # 1
+  num_graph_update: 1 # 1
   layers: 50
   dim_edge_feats: 512
   dim_obj_feats: 512

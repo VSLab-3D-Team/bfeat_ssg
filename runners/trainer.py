@@ -197,10 +197,10 @@ class BFeatVanillaTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
-                attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
+                # tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
+                # attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
-                _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
+                _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids) # attn_tfidf_weight
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
