@@ -21,7 +21,7 @@ class SSGImbalanceSampler(Sampler):
             for r in relationship:
                 _, _, pred_id, _ = r
                 if pred_id in TAIL_PREDICATE_ID:
-                    self.scan_weights[idx] += 10
+                    self.scan_weights[idx] += 1
         self.scan_weights = self.scan_weights / self.scan_weights.sum()
         self.scan_weights = torch.from_numpy(self.scan_weights)
 

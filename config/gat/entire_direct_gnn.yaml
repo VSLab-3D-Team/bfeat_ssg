@@ -16,15 +16,15 @@ train:
   log_interval: 5
   evaluation_interval: 10
   save_interval: 20
-  batch_size: 64
-  workers: 12
+  batch_size: 8
+  workers: 8
   wandb_path: ./wandb
   wandb_project: bfeat_sg_direct_gnn
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
   meter: average
-  scheduler: 'cyclic'
+  scheduler: 'cosine'
   num_negative_sample: 8
   sampler: 'frequency'
   freq_temperature: 0.3
@@ -44,9 +44,9 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 9
+  num_layers: 6
   relation_type: "pointnet"
 
 optimizer:
-  learning_rate: 0.001
+  learning_rate: 0.0001
   weight_decay: 0.0001

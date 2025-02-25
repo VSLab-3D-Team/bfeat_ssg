@@ -131,17 +131,24 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
             depth=self.m_config.num_graph_update,
             DROP_OUT_ATTEN=self.t_config.drop_out
         ).to(self.device)
-        assert "triplet_feat_type" in self.m_config, "Triplet Contrastive Setting needs merging layer type: Concat or 1D Conv"
-        if self.m_config.triplet_feat_type == "1dconv":
-            self.triplet_encoder = TripletContrastiveConvLayer(
-                self.m_config.dim_obj_feats, 
-                self.m_config.num_layers
+        assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
+        if self.m_config.relation_type == "pointnet":
+            self.relation_encoder = RelFeatPointExtractor(
+                config, device
             )
-        elif self.m_config.triplet_feat_type == "concat":
-            self.triplet_encoder = TripletContrastiveMLPLayer(
+        elif self.m_config.relation_type == "resnet":
+            self.relation_encoder = RelFeatNaiveExtractor(
                 self.m_config.dim_obj_feats,
-                self.m_config.num_layers
-            )
+                self.m_config.dim_geo_feats,
+                self.m_config.dim_edge_feats,
+                num_layers=self.m_config.num_layers
+            ).to(self.device)
+        elif self.m_config.relation_type == "1dconv":
+            self.relation_encoder = RelFeatMergeExtractor(
+                self.m_config.dim_obj_feats,
+                self.m_config.dim_geo_feats,
+                self.m_config.dim_edge_feats
+            ).to(self.device)
         else:
             raise NotImplementedError
         
@@ -151,6 +158,7 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
     def forward(
         self, 
         obj_pts: torch.Tensor, 
+        edge_pts: torch.Tensor, # remaining for other processing domain
         edge_indices: torch.Tensor, 
         descriptor: torch.Tensor, 
         batch_ids=None
@@ -159,18 +167,21 @@ class BFeatTripletContrastvieGNN(BaseNetwork):
             _obj_feats, _, _ = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach()
         
-        x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
-        geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-        edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        if not self.m_config.relation_type == "pointnet":
+            x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
+            geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
+            edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+        else:
+            edge_feats = self.relation_encoder(edge_pts)
         
         obj_center = descriptor[:, :3].clone()
         obj_gnn_feats, edge_gnn_feats = self.gat(
             obj_feats, edge_feats, edge_indices, batch_ids, obj_center
         )
-        sub_tri_feats, obj_tri_feats = self.index_get(obj_gnn_feats, edge_indices)
-        tri_feats = self.triplet_encoder(sub_tri_feats, edge_gnn_feats, obj_tri_feats)
+        # sub_tri_feats, obj_tri_feats = self.index_get(obj_gnn_feats, edge_indices)
+        # tri_feats = self.triplet_encoder(sub_tri_feats, edge_gnn_feats, obj_tri_feats)
         
         obj_pred = self.obj_classifier(obj_gnn_feats)
         rel_pred = self.rel_classifier(edge_gnn_feats)
         
-        return edge_gnn_feats, tri_feats, obj_pred, rel_pred
+        return edge_gnn_feats, obj_pred, rel_pred # tri_feats,

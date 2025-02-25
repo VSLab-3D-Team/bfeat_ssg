@@ -107,6 +107,19 @@ class TFIDFMaskLayer(object):
         weights = weights / (weights.sum() + 1e-6)  # 정규화
         return weights.to(self.device)
 
+class TFIDFEdgeAttnWeightLayer(object):
+    def __init__(self, num_classes, device):
+        self.device = device
+        self.num_classes = num_classes
+        self.idf_values = torch.zeros(num_classes)
+    
+    def get_mask(self):
+        """
+        TODO: implement TF-IDF weight for edge attention
+        """
+        
+        return
+
 class Gen_Index(MessagePassing):
     """ A sequence of scene graph convolution layers  """
     def __init__(self,flow="target_to_source"):
