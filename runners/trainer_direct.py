@@ -63,6 +63,14 @@ class BFeatDirectGNNTrainer(BaseTrainer):
         weight = weight[1:]                
         return weight
     
+    def __dynamic_obj_weight(self, gt_obj_cls, alpha=0.5):
+        num_classes = len(self.obj_label_list)
+        class_counts = torch.bincount(gt_obj_cls, minlength=num_classes).float()
+        class_counts = class_counts + 1e-6  
+        weights = 1.0 / (class_counts ** alpha)
+        weights = weights / weights.sum()
+        return weights
+    
     def train(self):
         
         self.model = self.model.train()
@@ -101,7 +109,8 @@ class BFeatDirectGNNTrainer(BaseTrainer):
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
-                c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label)
+                obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
+                c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label, weight=obj_weight)
                 c_rel_loss = F.binary_cross_entropy(rel_pred, gt_rel_label, weight=rel_weight)
                 
                 pos_pair, neg_pair, rel_indices = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
