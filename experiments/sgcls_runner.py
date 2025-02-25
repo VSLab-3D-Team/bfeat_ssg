@@ -1,19 +1,39 @@
+from model import BFeatVanillaNet, BFeatDirectGNNNet
 from experiments.base_runner import BaseExperimentRunner
 from utils.eval_utils import *
 from utils.logger import Progbar
 import numpy as np
-import torch.nn as nn
 
-class ClassificationExperiment(BaseExperimentRunner):
+class EntireExperimentRunners(BaseExperimentRunner):
     def __init__(
         self,
-        model: nn.Module, 
+        model_name: str,
+        ckp_path: str, 
         config, 
         device
     ):
         super().__init__(config, device)
-        self.model = model
-        self.model.load_state_dict(torch.load(self.t_config.ckp_path))
+        
+        if model_name == "vanilla":
+            self.model = BFeatVanillaNet(
+                config,
+                self.num_obj_class,
+                self.num_rel_class,
+                device
+            )
+        elif model_name == "direct_gnn":
+            self.model = BFeatDirectGNNNet(
+                config,
+                self.num_obj_class,
+                self.num_rel_class,
+                device
+            )
+        else:
+            raise NotImplementedError
+        self.model.load_state_dict(torch.load(ckp_path))
+        ckp_name = ckp_path.split("/")[-1].split(".")[0]
+        self.model_name = model_name
+        self.ckp_name = ckp_name
         
     @torch.no_grad()
     def validate(self):
@@ -48,10 +68,8 @@ class ClassificationExperiment(BaseExperimentRunner):
             
             obj_pts = obj_pts.transpose(2, 1).contiguous()
             rel_pts = rel_pts.transpose(2, 1).contiguous()
-            tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
-            attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
             
-            _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
+            _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
             top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
             gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
             top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
@@ -113,7 +131,7 @@ class ClassificationExperiment(BaseExperimentRunner):
         
         rel_acc_mean_1, rel_acc_mean_3, rel_acc_mean_5 = self.compute_mean_predicate(cls_matrix_list, topk_rel_list)
         self.compute_predicate_acc_per_class(cls_matrix_list, topk_rel_list)
-        logs += [
+        results = [
             ("Acc@1/obj_cls_acc", obj_acc_1),
             ("Acc@5/obj_cls_acc", obj_acc_5),
             ("Acc@10/obj_cls_acc", obj_acc_10),
@@ -135,4 +153,10 @@ class ClassificationExperiment(BaseExperimentRunner):
             ("Predcls@50", predcls_recall[1]),
             ("Predcls@100", predcls_recall[2]),
         ] 
-        return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
+        with open(f"./outputs/results_{self.model_name}_{self.ckp_name}.txt", 'w') as f:
+            f.write("Evaluation results:")
+            f.write("-----------------------------------------------------")
+            for name, value in results:
+                f.write(f"{name}: {value}")
+            f.write("-----------------------------------------------------")
+        
