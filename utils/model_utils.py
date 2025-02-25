@@ -80,24 +80,24 @@ class TFIDFMaskLayer(object):
     ## 같은 graph 안에 있는 놈들 끼리 weight를 묶어야함.
     def get_mask(
         self, 
-        gt_obj_label: torch.Tensor, 
+        gt_label: torch.Tensor, 
         batch_ids: torch.Tensor
     ):
         """
         Inputs:
-            - gt_obj_label: B X 1, labels
+            - gt_label: B X 1, labels
             - batch_ids: B X 1, batch id 0 ~ bsz-1
         Outputs:
-            - mask: TF-IDF based attention mask
+            - mask: C X 1, TF-IDF based attention mask
         """
         bsz = batch_ids.max().item() + 1
-        class_counts = torch.bincount(gt_obj_label.flatten(), minlength=self.num_classes).float()
-        tf = class_counts / bsz
+        class_counts = torch.bincount(gt_label.flatten(), minlength=self.num_classes).float()
+        tf = class_counts / bsz 
         
         doc_count = torch.zeros(self.num_classes).to(self.device)
         for b in range(bsz):
             batch_mask = torch.where(batch_ids == b)[0]
-            obj_label_batch = gt_obj_label[batch_mask]
+            obj_label_batch = gt_label[batch_mask]
             count_batch = torch.bincount(obj_label_batch.flatten(), minlength=self.num_classes)
             contains_class = (count_batch > 0).float()
             doc_count += contains_class
@@ -107,18 +107,68 @@ class TFIDFMaskLayer(object):
         weights = weights / (weights.sum() + 1e-6)  # 정규화
         return weights.to(self.device)
 
-class TFIDFEdgeAttnWeightLayer(object):
-    def __init__(self, num_classes, device):
+class TFIDFTripletWeight(object):
+    def __init__(self, num_classes_obj, num_classes_pred, device):
         self.device = device
-        self.num_classes = num_classes
-        self.idf_values = torch.zeros(num_classes)
+        self.num_classes_obj = num_classes_obj
+        self.num_classes_pred = num_classes_pred
     
-    def get_mask(self):
+    def get_mask(
+        self,
+        gt_obj_label: torch.Tensor,
+        gt_rel_label: torch.Tensor,
+        edge_indices: torch.Tensor,
+        batch_ids: torch.Tensor
+    ):
         """
-        TODO: implement TF-IDF weight for edge attention
+        Things to implement: Multi-Label, Edge-based Batch-wise TF-IDF
+        Inputs:
+            - gt_label: N_edge X N_cls, multi-labeled GT one-hot vector
+            - edge_indices: N_edge X 2, <sub idx, obj idx>
+            - batch_idx: N_obj X 1, batch ids
+        Outputs:
+            - weights: N_edge X 1, Edge-wise attention weight
         """
+        bsz = batch_ids.max().item() + 1
+        tf = torch.zeros((
+            self.num_classes_obj, 
+            self.num_classes_pred, 
+            self.num_classes_obj
+        )).to(self.device)
+        df = torch.zeros((
+            self.num_classes_obj, 
+            self.num_classes_pred, 
+            self.num_classes_obj,
+            bsz
+        )).to(self.device)
+        # D(t) = Number of documents contains certain triplets <subject, predicate, object>
+        # IDF(t) = N_b / (1 + D(t))
+        # TF(t) = 
+        # W(e)^{tf-idf} = \product
+        edge_weight = torch.zeros(edge_indices.shape[0]).to(self.device)
+        for e_id in range(edge_indices.shape[0]):
+            idx_eo = edge_indices[e_id][0]
+            idx_os = edge_indices[e_id][1]
+            sub_label, obj_label = gt_obj_label[idx_eo], gt_obj_label[idx_os]
+            s_b_id, o_b_id = batch_ids[idx_eo], batch_ids[idx_os]
+            assert s_b_id == o_b_id, "invalid batch index between sub-obj relation"
+            edge_label = gt_rel_label[e_id]
+            tf[sub_label, :, obj_label] += edge_label
+            _mask_rel = (edge_label == 1)
+            df[sub_label, _mask_rel, obj_label, s_b_id] = 1
+        df = torch.sum(df, dim=-1)
+        idf = torch.log((bsz + 1) / (1 + df))
         
-        return
+        for e_id in range(edge_indices.shape[0]):
+            idx_eo = edge_indices[e_id][0]
+            idx_os = edge_indices[e_id][1]
+            sub_label, obj_label = gt_obj_label[idx_eo], gt_obj_label[idx_os]
+            edge_label = gt_rel_label[e_id]
+            _mask_rel = (edge_label == 1)
+            edge_weight[e_id] = (tf[sub_label, _mask_rel, obj_label] * idf[sub_label, _mask_rel, obj_label]).sum()
+        
+        edge_weight = edge_weight / (1e-6 + edge_weight.sum()) # N_edge X 1
+        return edge_weight
 
 class Gen_Index(MessagePassing):
     """ A sequence of scene graph convolution layers  """

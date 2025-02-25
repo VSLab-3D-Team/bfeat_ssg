@@ -1,7 +1,7 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
 from runners.base_trainer import BaseTrainer
-from utils.model_utils import TFIDFMaskLayer
+from utils.model_utils import TFIDFMaskLayer, TFIDFTripletWeight
 from model.frontend.relextractor import *
 from model.models.model_vanilla import BFeatVanillaNet
 from model.loss import MultiLabelInfoNCELoss, ContrastiveSafeLoss, WeightedFocalLoss
@@ -45,6 +45,7 @@ class BFeatVanillaTrainer(BaseTrainer):
         self.f_criterion = WeightedFocalLoss()
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
+        self.w_edge = TFIDFTripletWeight(self.num_obj_class, self.num_rel_class, self.device)
         
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
@@ -112,8 +113,7 @@ class BFeatVanillaTrainer(BaseTrainer):
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 
                 # TF-IDF Attention Mask Generation
-                tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
-                attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
+                attn_tfidf_weight = self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
                 
                 edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)

@@ -108,7 +108,7 @@ class BFeatVanillaGAT(torch.nn.Module):
                 use_knn=False
             )
             obj_feature_3d = obj_feature_3d.squeeze(0)
-            obj_feature_3d, edge_feature_3d = self.gcn_3ds[i](obj_feature_3d, edge_feature_3d, edge_index, istrain=istrain)
+            obj_feature_3d, edge_feature_3d = self.gcn_3ds[i](obj_feature_3d, edge_feature_3d, edge_index, weight=attn_weight, istrain=istrain)
 
             if i < (self.depth-1) or self.depth==1:
                 # Final processing for Object Features 
