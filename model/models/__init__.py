@@ -1,2 +1,0 @@
-from model.models.model_vanilla import BFeatVanillaNet
-from model.models.model_direct_gnn import BFeatDirectGNNNet
