@@ -141,7 +141,7 @@ class TFIDFTripletWeight(object):
             self.num_classes_obj,
             bsz
         )).to(self.device)
-        # D(t) = Number of documents contains certain triplets <subject, predicate, object>
+        # DF(t) = Number of documents contains certain triplets <subject, predicate, object>
         # IDF(t) = N_b / (1 + D(t))
         # TF(t) = 
         # W(e)^{tf-idf} = \product
