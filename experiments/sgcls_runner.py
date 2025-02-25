@@ -1,4 +1,5 @@
-from model import BFeatVanillaNet, BFeatDirectGNNNet
+from model.models.model_vanilla import BFeatVanillaNet
+from model.models.model_direct_gnn import BFeatDirectGNNNet
 from experiments.base_runner import BaseExperimentRunner
 from utils.eval_utils import *
 from utils.logger import Progbar
