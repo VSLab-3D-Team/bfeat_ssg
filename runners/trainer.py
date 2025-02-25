@@ -113,7 +113,7 @@ class BFeatVanillaTrainer(BaseTrainer):
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 
                 # TF-IDF Attention Mask Generation
-                attn_tfidf_weight = self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
+                attn_tfidf_weight = None # self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
                 
                 edge_feats, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, attn_tfidf_weight)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
