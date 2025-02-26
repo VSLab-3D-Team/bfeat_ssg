@@ -21,6 +21,11 @@ class BFeatVanillaGAT(torch.nn.Module):
             for _ in range(depth)
         )
         
+        self.self_attn_rel = nn.ModuleList(
+            MultiHeadAttention(d_model=dim_edge, d_k=dim_edge // num_heads, d_v=dim_edge // num_heads, h=num_heads) 
+            for i in range(depth)
+        )
+        
         self.gcn_3ds = torch.nn.ModuleList()
         
         for _ in range(self.depth):
@@ -69,17 +74,22 @@ class BFeatVanillaGAT(torch.nn.Module):
             # get attention weight for object
             batch_size = batch_ids.max().item() + 1
             N_K = obj_feature_3d.shape[0]
+            N_R = edge_feature_3d.shape[0]
             obj_mask = torch.zeros(1, 1, N_K, N_K).cuda()
+            rel_mask = torch.zeros(1, 1, N_R, N_R).cuda()
             obj_distance_weight = torch.zeros(1, self.num_heads, N_K, N_K).cuda()
             count = 0
+            count_rel = 0
 
             for i in range(batch_size):
 
                 idx_i = torch.where(batch_ids == i)[0]
-                obj_mask[:, :, count:count + len(idx_i), count:count + len(idx_i)] = 1
-            
-                center_A = obj_center[None, idx_i, :].clone().detach().repeat(len(idx_i), 1, 1)
-                center_B = obj_center[idx_i, None, :].clone().detach().repeat(1, len(idx_i), 1)
+                L = len(idx_i)
+                obj_mask[:, :, count:count + L, count:count + L] = 1
+                rel_mask[:, :, count_rel:count_rel + L * (L - 1), count_rel:count_rel + L * (L - 1)] = 1
+                
+                center_A = obj_center[None, idx_i, :].clone().detach().repeat(L, 1, 1)
+                center_B = obj_center[idx_i, None, :].clone().detach().repeat(1, L, 1)
                 center_dist = (center_A - center_B)
                 dist = center_dist.pow(2)
                 dist = torch.sqrt(torch.sum(dist, dim=-1))[:, :, None]
@@ -87,15 +97,16 @@ class BFeatVanillaGAT(torch.nn.Module):
                 dist_weights = self.self_attn_fc(weights).permute(0,3,1,2)  # 1 num_heads N N
                 
                 attention_matrix_way = 'add'
-                obj_distance_weight[:, :, count:count + len(idx_i), count:count + len(idx_i)] = dist_weights
+                obj_distance_weight[:, :, count:count + L, count:count + L] = dist_weights
 
-                count += len(idx_i)
-            
+                count += L
+                count_rel += L * (L - 1)
             # attn_weight = attn_weight.unsqueeze(0).unsqueeze(0).unsqueeze(0)
             # obj_distance_weight *= attn_weight
         else:
             obj_mask = None
             obj_distance = None
+            rel_mask = None
             attention_matrix_way = 'mul'
 
 
@@ -107,7 +118,12 @@ class BFeatVanillaGAT(torch.nn.Module):
                 attention_weights=obj_distance_weight, way=attention_matrix_way, attention_mask=obj_mask, 
                 use_knn=False
             )
+            edge_feature_3d = edge_feature_3d.unsqueeze(0)
+            edge_feature_3d = self.self_attn_rel[i](edge_feature_3d, edge_feature_3d, edge_feature_3d, attention_mask=rel_mask)
+            
             obj_feature_3d = obj_feature_3d.squeeze(0)
+            edge_feature_3d = edge_feature_3d.squeeze(0)
+            
             obj_feature_3d, edge_feature_3d = self.gcn_3ds[i](obj_feature_3d, edge_feature_3d, edge_index, weight=attn_weight, istrain=istrain)
 
             if i < (self.depth-1) or self.depth==1:
