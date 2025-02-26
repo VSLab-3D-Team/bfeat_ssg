@@ -21,10 +21,10 @@ class BFeatVanillaGAT(torch.nn.Module):
             for _ in range(depth)
         )
         
-        self.self_attn_rel = nn.ModuleList(
-            MultiHeadAttention(d_model=dim_edge, d_k=dim_edge // num_heads, d_v=dim_edge // num_heads, h=num_heads) 
-            for i in range(depth)
-        )
+        # self.self_attn_rel = nn.ModuleList(
+        #     MultiHeadAttention(d_model=dim_edge, d_k=dim_edge // num_heads, d_v=dim_edge // num_heads, h=num_heads) 
+        #     for i in range(depth)
+        # )
         
         self.gcn_3ds = torch.nn.ModuleList()
         
@@ -118,11 +118,11 @@ class BFeatVanillaGAT(torch.nn.Module):
                 attention_weights=obj_distance_weight, way=attention_matrix_way, attention_mask=obj_mask, 
                 use_knn=False
             )
-            edge_feature_3d = edge_feature_3d.unsqueeze(0)
-            edge_feature_3d = self.self_attn_rel[i](edge_feature_3d, edge_feature_3d, edge_feature_3d, attention_mask=rel_mask)
+            # edge_feature_3d = edge_feature_3d.unsqueeze(0)
+            # edge_feature_3d = self.self_attn_rel[i](edge_feature_3d, edge_feature_3d, edge_feature_3d, attention_mask=rel_mask)
             
             obj_feature_3d = obj_feature_3d.squeeze(0)
-            edge_feature_3d = edge_feature_3d.squeeze(0)
+            # edge_feature_3d = edge_feature_3d.squeeze(0)
             
             obj_feature_3d, edge_feature_3d = self.gcn_3ds[i](obj_feature_3d, edge_feature_3d, edge_index, weight=attn_weight, istrain=istrain)
 
