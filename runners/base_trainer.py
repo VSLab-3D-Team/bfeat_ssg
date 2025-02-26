@@ -26,14 +26,14 @@ class BaseTrainer(ABC):
         if not multi_view_ssl:
             self.t_dataset = build_dataset(self.d_config, split="train_scans", device=device)
             self.v_dataset = build_dataset(self.d_config, split="validation_scans", device=device)
-            # w_sampler = SSGImbalanceSampler(self.t_dataset)
+            w_sampler = SSGImbalanceSampler(self.t_dataset)
             self.t_dataloader = CustomDataLoader(
                 self.d_config, 
                 self.t_dataset, 
                 batch_size=self.t_config.batch_size,
                 num_workers=self.t_config.workers,
-                # sampler=w_sampler,
-                shuffle=True,
+                sampler=w_sampler,
+                # shuffle=True,
                 drop_last=True,
                 collate_fn=collate_fn_bfeat
             )
@@ -59,14 +59,14 @@ class BaseTrainer(ABC):
                 device=device, 
                 d_feats=self.config.model.dim_obj_feats
             )
-            # w_sampler = SSGImbalanceSampler(self.t_dataset)
+            w_sampler = SSGImbalanceSampler(self.t_dataset)
             self.t_dataloader = CustomDataLoader(
                 self.d_config, 
                 self.t_dataset, 
                 batch_size=self.t_config.batch_size,
                 num_workers=self.t_config.workers,
-                # sampler=w_sampler,
-                shuffle=True,
+                sampler=w_sampler,
+                # shuffle=True,
                 drop_last=True,
                 collate_fn=collate_fn_bfeat_mv
             )
