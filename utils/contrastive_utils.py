@@ -155,6 +155,7 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
     def __make_freq_prob_dist(self):
         f_temperature = self.t_config.freq_temperature
         self.prob_obj_sample = F.softmax(self.w_cls_obj / f_temperature, dim=0)
+        print("Predicate Contrastive Sampler Distribution: ", self.prob_obj_sample)
         self.prob_rel_sample = F.softmax(self.w_cls_rel / f_temperature, dim=0)
     
     def __sample_negative_labels(self, anchor_idx):

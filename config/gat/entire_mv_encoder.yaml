@@ -27,7 +27,7 @@ train:
   scheduler: 'cosine'
   num_negative_sample: 8
   sampler: 'frequency'
-  freq_temperature: 1.0 
+  freq_temperature: 0.3 # 0.5, 2
   loss_temperature: 0.3
   lambda_obj: 0.1
   lambda_rel: 1.0
@@ -45,7 +45,7 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 9
+  num_layers: 6
   relation_type: "resnet"
 
 optimizer:
