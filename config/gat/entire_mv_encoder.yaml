@@ -32,7 +32,7 @@ train:
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_con: 1.0
-  oversampling: true
+  oversampling: false
 
 model:
   num_graph_update: 2 # 1
