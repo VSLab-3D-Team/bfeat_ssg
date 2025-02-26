@@ -27,11 +27,12 @@ train:
   scheduler: 'cosine'
   num_negative_sample: 8
   sampler: 'frequency'
-  freq_temperature: 0.3 
+  freq_temperature: 1.0 
   loss_temperature: 0.3
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_con: 1.0
+  oversampling: true
 
 model:
   num_graph_update: 2 # 1

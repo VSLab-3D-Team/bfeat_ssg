@@ -22,10 +22,11 @@ def compute_frequnecy_weight(obj_label_list, rel_label_list, data, selected_scan
     if not multi_rel:
         w_cls_rel[0] = w_cls_rel.max() * 10
     
-    w_cls_obj = w_cls_obj.sum() / (w_cls_obj + 1) / w_cls_obj.sum()
-    w_cls_rel = w_cls_rel.sum() / (w_cls_rel + 1) / w_cls_rel.sum()
-    w_cls_obj = w_cls_obj / w_cls_obj.max()
-    w_cls_rel = w_cls_rel / w_cls_rel.max()
+    w_cls_obj = (w_cls_obj / w_cls_obj.max()) * 10
+    w_cls_rel = (w_cls_rel / w_cls_rel.max()) * 10    
+    w_cls_obj = 1. / (w_cls_obj + 1)
+    w_cls_rel = 1. / (w_cls_rel + 1)
+    w_cls_rel[6] = -1 # There is no value for predicate "inside", so hard coded value will be inserted.
     
     return w_cls_obj, w_cls_rel
 
