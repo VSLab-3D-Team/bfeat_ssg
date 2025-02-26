@@ -45,8 +45,8 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 9
-  relation_type: "pointnet"
+  num_layers: 6
+  relation_type: "resnet"
 
 optimizer:
   learning_rate: 0.0001
