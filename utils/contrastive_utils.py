@@ -198,7 +198,7 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
                 pos_feat = self.none_emb[target_sub_idx, target_obj_idx, :]
                 target_pos_token.append(pos_feat.unsqueeze(0)) # 1 X N_t
                 
-                neg_samples_idx = self.__sample_negative_labels(-1)
+                neg_samples_idx = self.__sample_negative_labels(self.prob_rel_sample.clone())
                 neg_feats = self.embedding_vector_loader[target_sub_idx, target_obj_idx, neg_samples_idx, :]
                 target_neg_token.append(neg_feats.unsqueeze(0)) # 1 X N_neg X N_t
                 rel_index.append(edge_index)
