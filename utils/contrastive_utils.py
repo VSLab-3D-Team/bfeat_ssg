@@ -155,17 +155,18 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
     def __make_freq_prob_dist(self):
         f_temperature = self.t_config.freq_temperature
         self.prob_obj_sample = F.softmax(self.w_cls_obj / f_temperature, dim=0)
-        print("Predicate Contrastive Sampler Distribution: ", self.prob_obj_sample)
         self.prob_rel_sample = F.softmax(self.w_cls_rel / f_temperature, dim=0)
+        print("Predicate Contrastive Sampler Distribution: ", self.prob_rel_sample)
     
-    def __sample_negative_labels(self, anchor_idx):
-        sample_dist = self.prob_rel_sample.clone()
-        if not anchor_idx == -1: # If anchor is not none
-            sample_dist[anchor_idx] = 0.
-            sample_dist = sample_dist / sample_dist.sum()
-        sample_indices = torch.multinomial(sample_dist, self.num_neg_samples, replacement=False)
-        # s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
+    def __sample_negative_labels(self, neg_dist: torch.Tensor):
+        sample_indices = torch.multinomial(neg_dist, self.num_neg_samples, replacement=False)
         return sample_indices
+    
+    def __get_distributions(self, pred_labels: torch.Tensor):
+        sample_dist = self.prob_rel_sample.clone()
+        sample_dist[pred_labels.bool()] = 0. # [ False, True, False, False, True ] -> [ x_1, 0., x_3, x_4, 0 ]
+        sample_dist = sample_dist / sample_dist.sum()
+        return sample_dist 
     
     @torch.no_grad()
     def sample(self, objs_target, rels_target, edges):
@@ -196,25 +197,21 @@ class ContrastiveFreqWeightedSampler(ContrastiveAbstractSampler):
                 # relationship = 'none'
                 pos_feat = self.none_emb[target_sub_idx, target_obj_idx, :]
                 target_pos_token.append(pos_feat.unsqueeze(0)) # 1 X N_t
-                # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
                 
                 neg_samples_idx = self.__sample_negative_labels(-1)
                 neg_feats = self.embedding_vector_loader[target_sub_idx, target_obj_idx, neg_samples_idx, :]
                 target_neg_token.append(neg_feats.unsqueeze(0)) # 1 X N_neg X N_t
-                # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
                 rel_index.append(edge_index)
             else:
+                neg_dist = self.__get_distributions(rels_target[edge_index]) # C
                 for i in range(rels_target.shape[-1]):
                     if rels_target[edge_index][i] == 1:
-                        pos_rel = self.rel_label_list[i]
                         pos_feat = self.embedding_vector_loader[target_sub_idx, target_obj_idx, i, :]
                         target_pos_token.append(pos_feat.unsqueeze(0)) # 1 X N_t
-                        # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
                         
-                        neg_samples_idx = self.__sample_negative_labels(i)
+                        neg_samples_idx = self.__sample_negative_labels(neg_dist)
                         neg_feats = self.embedding_vector_loader[target_sub_idx, target_obj_idx, neg_samples_idx, :]
                         target_neg_token.append(neg_feats.unsqueeze(0)) # 1 X N_neg X N_t
-                        # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
                         rel_index.append(edge_index)
     
         p_target_tokens = torch.vstack(target_pos_token).to(self.device) # M X N_t
@@ -356,6 +353,7 @@ class ContrastiveHybridTripletSampler(ContrastiveAbstractSampler):
         f_temperature = self.t_config.freq_temperature
         self.prob_obj_sample = F.softmax(self.w_cls_obj / f_temperature, dim=0)
         self.prob_rel_sample = F.softmax(self.w_cls_rel / f_temperature, dim=0)
+        print("Predicate Contrastive Sampler Distribution: ", self.prob_rel_sample)
     
     def __sample_neg_predicate(self, anchor_idx):
         if not anchor_idx == -1: # If anchor is not none
@@ -463,6 +461,12 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
         self.prob_obj_sample = F.softmax(self.w_cls_obj / f_temperature, dim=0)
         self.prob_rel_sample = F.softmax(self.w_cls_rel / f_temperature, dim=0)
 
+    def __get_distributions(self, pred_labels: torch.Tensor):
+        sample_dist = self.prob_rel_sample.clone()
+        sample_dist[pred_labels.bool()] = 0. # [ False, True, False, False, True ] -> [ x_1, 0., x_3, x_4, 0 ]
+        sample_dist = sample_dist / sample_dist.sum()
+        return sample_dist 
+
     @torch.no_grad()
     def crazy_negative_embedding(self, token_vecs: torch.Tensor):
         """
@@ -477,20 +481,16 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
             target_feats.append(self.text_encoder.encode_text(t_tokens).float().unsqueeze(1))
         return torch.cat(target_feats, dim=1) # N_obj_cls X N_rel_cls X N_token        
 
-    def __sample_negative_labels(self, sub_anchor_idx, pred_anchor_idx, obj_anchor_idx):
+    def __sample_negative_labels(self, sub_anchor_idx, pred_anchor_idx, obj_anchor_idx, pred_neg_dist):
         neg_samples=[]
         buffer_neg_labels=[]
         num_buffer_sample=0
         
-        sample_dist = self.prob_rel_sample.clone()
-        if not pred_anchor_idx == -1: # If anchor is not none
-            sample_dist[pred_anchor_idx] = 0.
-            sample_dist = sample_dist / sample_dist.sum()
+        if not pred_anchor_idx == -1: # If anchor is not none            
+            num_buffer_sample = min(self.replay_buffer.Get_Sample_length((sub_anchor_idx, pred_anchor_idx, obj_anchor_idx)), self.num_neg_samples)
+            buffer_neg_labels = [ self.replay_buffer.Get_Sample((sub_anchor_idx, pred_anchor_idx, obj_anchor_idx)) for _ in range(num_buffer_sample) ]
             
-            num_buffer_sample=min(self.replay_buffer.Get_Sample_length((sub_anchor_idx,pred_anchor_idx,obj_anchor_idx)),self.num_neg_samples)
-            buffer_neg_labels = [self.replay_buffer.Get_Sample((sub_anchor_idx,pred_anchor_idx,obj_anchor_idx)) for _ in range(num_buffer_sample)]
-            
-        sample_indices = torch.multinomial(sample_dist, self.num_neg_samples-num_buffer_sample, replacement=False)
+        sample_indices = torch.multinomial(pred_neg_dist, self.num_neg_samples-num_buffer_sample, replacement=False)
         s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
         s_list.tolist()
         s_list=[(sub_anchor_idx, pred_neg_idx, obj_anchor_idx) for pred_neg_idx in s_list]
@@ -602,6 +602,7 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
                 # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0))
                 rel_index.append(edge_index)
             else:
+                neg_dist = self.__get_distributions(rels_target[edge_index])
                 for i in range(rels_target.shape[-1]):
                     if rels_target[edge_index][i] == 1:
                         pos_rel = self.rel_label_list[i]
@@ -609,7 +610,7 @@ class ContrastiveReplayBufferSampler(ContrastiveAbstractSampler):
                         target_pos_token.append(pos_token) # 1 X N_t
                         # target_pos_feats.append(self.text_encoder.encode_text(pos_token))
                         
-                        neg_samples = self.__sample_negative_labels(idx_eo, i, idx_os)
+                        neg_samples = self.__sample_negative_labels(idx_eo, neg_dist, idx_os)
                         neg_tokens = clip.tokenize([ f"a point cloud of a {target_sub} {target_pred} a {target_obj}" for target_sub,target_pred,target_obj in neg_samples ]).to(self.device)
                         target_neg_token.append(neg_tokens.unsqueeze(0)) # 1 X N_neg X N_t
                         # target_neg_feats.append(self.text_encoder.encode_text(neg_tokens).unsqueeze(0)) # 1 X N_neg X N_feat
