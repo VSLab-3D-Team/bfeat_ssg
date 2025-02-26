@@ -32,7 +32,7 @@ train:
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_con: 1.0
-  oversampling: false
+  oversampling: true
 
 model:
   num_graph_update: 2 # 1
@@ -45,7 +45,7 @@ model:
   use_rgb: true
   use_normal: true
   flow: target_to_source
-  num_layers: 6
+  num_layers: 9
   relation_type: "resnet"
 
 optimizer:
