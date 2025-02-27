@@ -48,10 +48,10 @@ class BFeatFullSCLTrainer(BaseTrainer):
         else:
             raise NotImplementedError
         # Loss function 
-        temperature = torch.tensor(self.t_config.loss_temperature, requires_grad=True)
-        self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=temperature).to(self.device)
-        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=temperature) 
-        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=temperature) 
+        # temperature = torch.tensor(self.t_config.loss_temperature, requires_grad=True)
+        self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
+        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
         
         # Add trace meters
         self.add_meters([
@@ -162,8 +162,8 @@ class BFeatFullSCLTrainer(BaseTrainer):
                     lambda_oc * obj_loss + \
                     lambda_tri * tri_contrastive_loss
                 t_loss.backward()
-                self.c_criterion.temperature = update_temperature_based_on_gradient(t_loss, self.c_criterion.temperature)
                 self.optimizer.step()
+                # self.c_criterion.temperature = update_temperature_based_on_gradient(t_loss, self.c_criterion.temperature)
                 
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
                 self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
