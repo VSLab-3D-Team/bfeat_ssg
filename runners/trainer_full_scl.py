@@ -50,8 +50,8 @@ class BFeatFullSCLTrainer(BaseTrainer):
         # Loss function 
         # temperature = torch.tensor(self.t_config.loss_temperature, requires_grad=True)
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        self.cm_visual_criterion = CrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
-        self.cm_text_criterion = CrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
         
         # Add trace meters
         self.add_meters([
