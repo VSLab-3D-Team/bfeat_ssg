@@ -11,7 +11,7 @@ dataset:
   relpts: "scene"
 
 train:
-  ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
+  ckp_path: ./model_checkpoints/pretrained_nh_best.pth
   name: GAT
   epoch: 1000
   log_interval: 5
@@ -20,7 +20,7 @@ train:
   batch_size: 6
   workers: 8
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_full_scl
+  wandb_project: bfeat_sg_finetune
   none_ratio: 0.1
   drop_out: 0.5
   verbose: true
@@ -35,6 +35,7 @@ train:
   lambda_obj_con: 1.0
   lambda_con: 1.0
   oversampling: false
+  relpts: "scene"
 
 model:
   num_graph_update: 2 # 1

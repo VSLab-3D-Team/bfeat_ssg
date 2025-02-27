@@ -161,7 +161,7 @@ class SSGLWBFeat3D(Dataset):
             instance1 = nodes[edge[0]]
             instance2 = nodes[edge[1]]
 
-            if self.config.train.relpts == "obj_only":
+            if self.config.relpts == "obj_only":
                 obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
                 obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
                 
@@ -395,7 +395,7 @@ class SSGLWBFeat3DwMultiModal(Dataset):
             instance1 = nodes[edge[0]]
             instance2 = nodes[edge[1]]
 
-            if self.config.train.relpts == "obj_only":
+            if self.config.relpts == "obj_only":
                 obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
                 obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
                 
