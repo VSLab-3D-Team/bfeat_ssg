@@ -5,6 +5,7 @@ from runners.base_trainer import BaseTrainer
 from model.frontend.relextractor import *
 from model.models.model_full_scl import BFeatFullSCLNet
 from model.backend.classifier import RelCosineClassifier, consine_classification_obj
+from model.backend.triplet import ProjectHead
 from utils.contrastive_utils import ContrastiveTripletSampler
 from model.frontend.pointnet import feature_transform_reguliarzer
 from model.loss import MultiLabelInfoNCELoss, SupervisedCrossModalInfoNCE, CrossModalInfoNCE
@@ -15,7 +16,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import wandb
 
 ## TODO: Relationship Feature Extractor Contrastive learning only
-class BFeatFullSCLTrainer(BaseTrainer):
+class BFeatSCLReconTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device, multi_view_ssl=True)
         self.m_config = config.model
@@ -50,8 +51,12 @@ class BFeatFullSCLTrainer(BaseTrainer):
         # Loss function 
         # temperature = torch.tensor(self.t_config.loss_temperature, requires_grad=True)
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        self.cm_visual_criterion = CrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
-        self.cm_text_criterion = CrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        
+        self.bbox_head = ProjectHead(dims=[self.m_config.dim_edge_feats, 256, 128, 3])
+        self.ori_head = ProjectHead(dims=[self.m_config.dim_edge_feats, 256, 128, 24])
+        
         
         # Add trace meters
         self.add_meters([
@@ -68,29 +73,15 @@ class BFeatFullSCLTrainer(BaseTrainer):
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
             self.resume_from_checkpoint(self.config.resume)
-    
-    def __data_augmentation(
-        self, 
-        points: torch.Tensor # Shape: B X N_pts X N_dim
-    ):
-        # random rotate
-        matrix= np.eye(3)
-        matrix[0:3,0:3] = rotation_matrix([0, 0, 1], np.random.uniform(0, 2*np.pi, 1))
-        matrix = torch.from_numpy(matrix).to(self.device).float()
+
+    def __get_obj_descriptor(self, pts):
+        centroid = torch.mean(pts, dim=-1)  # (N, 3)
+        normalized_pc = pts - centroid
         
-        _, N, _ = points.shape
-        centroid = points[:, :, :3].mean(1)
-        points[:, :, :3] -= centroid.unsqueeze(1).repeat(1, N, 1)
-        points_rot = torch.einsum('bnc,ca->bna', points[..., :3], matrix.T)
-        points[...,:3] = points_rot
-        if self.m_config.use_normal:
-            ofset = 3
-            if self.m_config.use_rgb:
-                ofset += 3
-            points_rot_feat = torch.einsum('bnc,ca->bna', points[..., ofset: 3 + ofset], matrix.T)
-            points[..., ofset: 3 + ofset] = points_rot_feat
-        return points
-    
+        covariance_matrix = (normalized_pc.T @ normalized_pc) / (pts.shape[0] - 1)  # (3x3)
+        
+        pass
+
     @torch.no_grad()
     def __get_text_feat(self, gt_obj: torch.Tensor):
         return self.text_gt_matrix[gt_obj.long()]
@@ -140,9 +131,11 @@ class BFeatFullSCLTrainer(BaseTrainer):
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 obj_feats, edge_feats, tri_feats, trans = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
 
+                
+                
                 # Object Encoder Contrastive loss
                 text_feat = self.__get_text_feat(gt_obj_label)
-                loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, zero_mask) # gt_obj_label,
+                loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, gt_obj_label, zero_mask)
                 loss_cm_text = self.cm_text_criterion(obj_feats, text_feat, gt_obj_label)
                 loss_reg = feature_transform_reguliarzer(trans)
                 obj_loss = loss_cm_visual + loss_cm_text + 0.1 * loss_reg

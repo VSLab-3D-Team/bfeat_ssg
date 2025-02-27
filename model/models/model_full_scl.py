@@ -1,6 +1,6 @@
 from model.frontend.pointnet import PointNetEncoder
 from model.backend.gat import BFeatVanillaGAT
-from model.backend.triplet import TripletContrastiveMLPLayer
+from model.backend.triplet import TripletContrastiveMLPLayer, ProjectHead
 from model.frontend.relextractor import *
 from model.models.baseline import BaseNetwork
 from utils.model_utils import Gen_Index
@@ -23,7 +23,10 @@ class BFeatFullSCLNet(BaseNetwork):
         self.mlp_fit_obj = nn.Linear(1024, self.m_config.dim_obj_feats)
         
         self.index_get = Gen_Index(flow=self.m_config.flow)
-        self.triplet_encoder = TripletContrastiveMLPLayer(self.m_config.dim_obj_feats)
+        self.triplet_encoder = TripletContrastiveMLPLayer(self.m_config.dim_obj_feats, n_layers=6)
+        # self.obj_proj = ProjectHead(dims=[ self.m_config.dim_obj_feats, 512, self.m_config.dim_obj_feats ])
+        # self.pred_proj = ProjectHead(dims=[ self.m_config.dim_edge_feats, 512, self.m_config.dim_edge_feats ])
+        
         self.gat = BFeatVanillaGAT(
             self.m_config.dim_obj_feats,
             self.m_config.dim_edge_feats,
@@ -80,6 +83,9 @@ class BFeatFullSCLNet(BaseNetwork):
         )
         sub_tri_feats, obj_tri_feats = self.index_get(obj_gnn_feats, edge_indices)
         tri_feats = self.triplet_encoder(sub_tri_feats, edge_gnn_feats, obj_tri_feats)
+        
+        # obj_gnn_feats = self.obj_proj(obj_gnn_feats)
+        # edge_gnn_feats = self.pred_proj(edge_gnn_feats) # Consider approve this
         
         if is_train:
             return obj_gnn_feats, edge_gnn_feats, tri_feats, trans

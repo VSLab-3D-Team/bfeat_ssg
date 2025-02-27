@@ -2,7 +2,8 @@ from utils.eval_utils import *
 from utils.logger import Progbar
 from runners.base_trainer import BaseTrainer
 from model.frontend.relextractor import *
-from model.models.model_downstream import BFeatDownstreamNet
+from model.models.model_downstream import BFeatDownstreamNet, BFeatFinetuingClassHead
+from model.models.model_full_scl import BFeatFullSCLNet
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -16,7 +17,10 @@ class BFeatFinetuningTrainer(BaseTrainer):
         
         # Model Definitions
         self.m_config = config.model
-        self.model = BFeatDownstreamNet(
+        
+        f_model = BFeatFullSCLNet(self.config, device).to(device)
+        self.model = BFeatFinetuingClassHead(
+            f_model,
             self.config, 
             self.num_obj_class, 
             self.num_rel_class, 

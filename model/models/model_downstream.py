@@ -60,3 +60,36 @@ class BFeatDownstreamNet(BaseNetwork):
         rel_pred = self.rel_classifier(edge_gnn_feats)
         
         return obj_pred, rel_pred
+
+class BFeatFinetuingClassHead(nn.Module):
+    def __init__(self, model: nn.Module, config, n_obj_cls, n_rel_cls, device):
+        super(BFeatFinetuingClassHead, self).__init__()
+        self.config = config
+        self.t_config = config.train
+        self.m_config = config.model
+        self.device = device
+        
+        self.f_model = model
+        self.f_model.load_state_dict(torch.load(self.t_config.ckp_path))
+        self.f_model = self.f_model.eval().to(device)
+        
+        self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
+        self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
+        
+    def forward(
+        self, 
+        obj_pts: torch.Tensor, 
+        edge_pts: torch.Tensor, # remaining for other processing domain
+        edge_indices: torch.Tensor, 
+        descriptor: torch.Tensor, 
+        batch_ids=None
+    ):
+        with torch.no_grad():
+            _obj_feats, _edge_feats = self.f_model(obj_pts, edge_pts, edge_indices, descriptor, batch_ids, is_train=False)
+        obj_feats = _obj_feats.clone().detach()
+        edge_feats = _edge_feats.clone().detach()
+        
+        obj_pred = self.obj_classifier(obj_feats)
+        rel_pred = self.rel_classifier(edge_feats)
+        
+        return obj_pred, rel_pred

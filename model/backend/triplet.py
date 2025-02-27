@@ -41,3 +41,14 @@ class TripletContrastiveMLPLayer(nn.Module):
         e_ij = self.merge_layer(m_ij).squeeze(1) # B X 512
         r_ij = self.res_blocks(e_ij)
         return self.fc_out(r_ij)
+
+class ProjectHead(nn.Module):
+    def __init__(self, dims: list):
+        super(ProjectHead, self).__init__()
+        
+        self.layers = nn.Sequential(
+            nn.Linear(dims[i - 1], dims[i]) for i in range(1, len(dims)) 
+        )
+    
+    def forward(self, x):
+        return self.layers(x)
