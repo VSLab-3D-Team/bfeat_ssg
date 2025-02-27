@@ -426,7 +426,6 @@ class SSGLWBFeat3DwMultiModal(Dataset):
                 gt_rels[e,:] = adj_matrix_onehot[index1,index2,:]
             else:
                 gt_rels[e] = adj_matrix[index1,index2]
-            rel_points.append(torch.from_numpy(edge_pts.astype(np.float32)))
         
         if len(rel_points) > 0:
             rel_points = torch.stack(rel_points, 0)
