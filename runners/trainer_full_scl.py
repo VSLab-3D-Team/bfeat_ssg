@@ -239,7 +239,7 @@ class BFeatFullSCLTrainer(BaseTrainer):
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                obj_feats, edge_feats = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, is_train=False)
+                obj_feats, edge_feats = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids, is_train=False)
                 obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats.clone().detach())
                 rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                 
