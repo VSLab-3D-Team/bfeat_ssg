@@ -26,7 +26,7 @@ train:
   meter: average
   scheduler: 'cosine'
   num_negative_sample: 6
-  num_tri_neg_samples: 15
+  num_tri_neg_samples: 6
   sampler: 'frequency'
   freq_temperature: 0.3 # 0.5, 2
   loss_temperature: 0.3
@@ -51,5 +51,5 @@ model:
   edge_attention: true
 
 optimizer:
-  learning_rate: 0.001
+  learning_rate: 0.0001
   weight_decay: 0.0001
