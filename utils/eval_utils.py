@@ -555,3 +555,45 @@ def evaluate_triplet_mrecallk(objs_pred, rels_pred, gt_rel, edges, multi_rel_out
     #return pred_triplets, correct_number/all_number
     # print(correct_number, all_number, iscompute)
     return [[correct_number[j][i] / all_number_perclass[j] if all_number_perclass[j]!=0 else -1 for i in range(3)] for j in range(26)]
+
+def get_rel_mean_recall(topk_pred_list, cls_matrix, topk=[3, 5]):
+    if len(cls_matrix) == 0:
+        return np.array([0,0])
+
+    mean_recall = [[] for _ in range(len(topk))]
+    cls_num = int(cls_matrix.max())
+    for i in range(cls_num):
+        cls_rank = topk_pred_list[cls_matrix[:,-1] == i]
+        if len(cls_rank) == 0:
+            continue
+        for idx, top in enumerate(topk):
+            mean_recall[idx].append((cls_rank <= top).sum() * 100 / len(cls_rank))
+    mean_recall = np.array(mean_recall, dtype=np.float32)
+    return mean_recall.mean(axis=1)
+
+def handle_mean_recall(recall_input):
+    '''
+    recall_list : N * 26 * 3:List
+    '''
+    recall_input = np.array(recall_input)
+    num_list = [0 for i in range(recall_input.shape[1])]
+    recall_list = [[0.0, 0.0, 0.0] for i in range(recall_input.shape[1])]
+    for one_batch in recall_input:
+        for idx, recall in enumerate(one_batch):
+            if -1 in recall:
+                continue
+            num_list[idx] += 1
+            recall_list[idx][0] += recall[0]
+            recall_list[idx][1] += recall[1]
+            recall_list[idx][2] += recall[2]
+    
+    for idx in range(len(recall_list)):
+        if num_list[idx] == 0:
+            continue
+        recall_list[idx][0] /= num_list[idx]
+        recall_list[idx][1] /= num_list[idx]
+        recall_list[idx][2] /= num_list[idx]
+    
+    num = sum(1 for value in num_list if value != 0)
+    result = np.array(recall_list).sum(0) / num
+    return result
