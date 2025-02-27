@@ -391,6 +391,13 @@ class CrossModalNXTent(nn.Module):
             loss_bt = self.__text_nonzero_mean(l_bp)
             return torch.mean(loss_bt)
 
+class SupervisedPcdNXTentLoss(nn.Module):
+    def __init__(self):
+        super(SupervisedPcdNXTentLoss, self).__init__()
+        
+    def forward(self):
+        return
+    
 class IntraModalBarlowTwinLoss(nn.Module):
     def __init__(self, _lambda=5e-3):
         super(IntraModalBarlowTwinLoss, self).__init__()

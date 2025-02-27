@@ -7,7 +7,7 @@ from model.models.model_full_scl import BFeatFullSCLNet
 from model.backend.classifier import RelCosineClassifier, consine_classification_obj
 from utils.contrastive_utils import ContrastiveTripletSampler
 from model.frontend.pointnet import feature_transform_reguliarzer
-from model.loss import MultiLabelInfoNCELoss, SupervisedCrossModalInfoNCE, update_temperature_based_on_gradient
+from model.loss import MultiLabelInfoNCELoss, SupervisedCrossModalInfoNCE, CrossModalInfoNCE
 import numpy as np
 import torch
 import torch.optim as optim
@@ -50,8 +50,8 @@ class BFeatFullSCLTrainer(BaseTrainer):
         # Loss function 
         # temperature = torch.tensor(self.t_config.loss_temperature, requires_grad=True)
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
-        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_visual_criterion = CrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_text_criterion = CrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
         
         # Add trace meters
         self.add_meters([
@@ -142,17 +142,17 @@ class BFeatFullSCLTrainer(BaseTrainer):
 
                 # Object Encoder Contrastive loss
                 text_feat = self.__get_text_feat(gt_obj_label)
-                loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, gt_obj_label, zero_mask)
+                loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, zero_mask) # gt_obj_label,
                 loss_cm_text = self.cm_text_criterion(obj_feats, text_feat, gt_obj_label)
                 loss_reg = feature_transform_reguliarzer(trans)
                 obj_loss = loss_cm_visual + loss_cm_text + 0.1 * loss_reg
                 
                 pos_pair, neg_pair, rel_indices = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
-                contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
+                contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair) # rel_indices
                 
                 # Triplet Contrastive sampler
                 pos_tri_pair, neg_tri_pair, rel_tri_indices = self.triplet_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
-                tri_contrastive_loss = self.c_criterion(tri_feats, pos_tri_pair, neg_tri_pair, rel_tri_indices)
+                tri_contrastive_loss = self.c_criterion(tri_feats, pos_tri_pair, neg_tri_pair) # rel_tri_indices
                 
                 # TODO: determine coefficient for each loss
                 lambda_c = self.t_config.lambda_con
