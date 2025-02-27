@@ -161,36 +161,38 @@ class SSGLWBFeat3D(Dataset):
             instance1 = nodes[edge[0]]
             instance2 = nodes[edge[1]]
 
-            # obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
-            # obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
-            
-            # edge_pts = np.concatenate([obj_pts_1, obj_pts_2], axis=0) # dim: (2 * N_pts) X self.dim_pts
-            
-            mask1 = (obj_masks == instance1).astype(np.int32) * 1
-            mask2 = (obj_masks == instance2).astype(np.int32) * 2
-            mask_ = np.expand_dims(mask1 + mask2, 1)
-            bbox1 = instances_box[instance1]
-            bbox2 = instances_box[instance2]
-            min_box = np.minimum(bbox1[0], bbox2[0])
-            max_box = np.maximum(bbox1[1], bbox2[1])
-            filter_mask = (scene_points[:,0] > min_box[0]) * (scene_points[:,0] < max_box[0]) \
-                        * (scene_points[:,1] > min_box[1]) * (scene_points[:,1] < max_box[1]) \
-                        * (scene_points[:,2] > min_box[2]) * (scene_points[:,2] < max_box[2])
-            
-            # add with context, to distingush the different object's points
-            points4d = np.concatenate([scene_points, mask_], 1)
-            pointset = points4d[np.where(filter_mask > 0)[0], :]
-            choice = np.random.choice(len(pointset), 2 * num_pts_normalized, replace=True)
-            pointset = pointset[choice, :]
-            pointset = torch.from_numpy(pointset.astype(np.float32))
-            pointset[:,:3] = self.zero_mean(pointset[:,:3])
+            if self.config.train.relpts == "obj_only":
+                obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
+                obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
+                
+                edge_pts = np.concatenate([obj_pts_1, obj_pts_2], axis=0) # dim: (2 * N_pts) X self.dim_pts
+                rel_points.append(torch.from_numpy(edge_pts.astype(np.float32))) # 
+            else:
+                mask1 = (obj_masks == instance1).astype(np.int32) * 1
+                mask2 = (obj_masks == instance2).astype(np.int32) * 2
+                mask_ = np.expand_dims(mask1 + mask2, 1)
+                bbox1 = instances_box[instance1]
+                bbox2 = instances_box[instance2]
+                min_box = np.minimum(bbox1[0], bbox2[0])
+                max_box = np.maximum(bbox1[1], bbox2[1])
+                filter_mask = (scene_points[:,0] > min_box[0]) * (scene_points[:,0] < max_box[0]) \
+                            * (scene_points[:,1] > min_box[1]) * (scene_points[:,1] < max_box[1]) \
+                            * (scene_points[:,2] > min_box[2]) * (scene_points[:,2] < max_box[2])
+                
+                # add with context, to distingush the different object's points
+                points4d = np.concatenate([scene_points, mask_], 1)
+                pointset = points4d[np.where(filter_mask > 0)[0], :]
+                choice = np.random.choice(len(pointset), 2 * num_pts_normalized, replace=True)
+                pointset = pointset[choice, :]
+                pointset = torch.from_numpy(pointset.astype(np.float32))
+                pointset[:,:3] = self.zero_mean(pointset[:,:3])
+                rel_points.append(pointset)
             
             if self.config.multi_rel:
                 gt_rels[e,:] = adj_matrix_onehot[index1,index2,:]
             else:
                 gt_rels[e] = adj_matrix[index1,index2]
-            rel_points.append(pointset) # torch.from_numpy(edge_pts.astype(np.float32))
-        
+
         if len(rel_points) > 0:
             rel_points = torch.stack(rel_points, 0)
         else:
@@ -393,10 +395,32 @@ class SSGLWBFeat3DwMultiModal(Dataset):
             instance1 = nodes[edge[0]]
             instance2 = nodes[edge[1]]
 
-            obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
-            obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
-            
-            edge_pts = np.concatenate([obj_pts_1, obj_pts_2], axis=0) # dim: (2 * N_pts) X self.dim_pts
+            if self.config.train.relpts == "obj_only":
+                obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
+                obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
+                
+                edge_pts = np.concatenate([obj_pts_1, obj_pts_2], axis=0) # dim: (2 * N_pts) X self.dim_pts
+                rel_points.append(torch.from_numpy(edge_pts.astype(np.float32))) # 
+            else:
+                mask1 = (obj_masks == instance1).astype(np.int32) * 1
+                mask2 = (obj_masks == instance2).astype(np.int32) * 2
+                mask_ = np.expand_dims(mask1 + mask2, 1)
+                bbox1 = instances_box[instance1]
+                bbox2 = instances_box[instance2]
+                min_box = np.minimum(bbox1[0], bbox2[0])
+                max_box = np.maximum(bbox1[1], bbox2[1])
+                filter_mask = (scene_points[:,0] > min_box[0]) * (scene_points[:,0] < max_box[0]) \
+                            * (scene_points[:,1] > min_box[1]) * (scene_points[:,1] < max_box[1]) \
+                            * (scene_points[:,2] > min_box[2]) * (scene_points[:,2] < max_box[2])
+                
+                # add with context, to distingush the different object's points
+                points4d = np.concatenate([scene_points, mask_], 1)
+                pointset = points4d[np.where(filter_mask > 0)[0], :]
+                choice = np.random.choice(len(pointset), 2 * num_pts_normalized, replace=True)
+                pointset = pointset[choice, :]
+                pointset = torch.from_numpy(pointset.astype(np.float32))
+                pointset[:,:3] = self.zero_mean(pointset[:,:3])
+                rel_points.append(pointset)
             
             if self.config.multi_rel:
                 gt_rels[e,:] = adj_matrix_onehot[index1,index2,:]

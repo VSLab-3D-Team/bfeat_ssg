@@ -34,6 +34,7 @@ train:
   lambda_obj_con: 1.0
   lambda_con: 1.0
   oversampling: false
+  relpts: "scene"
 
 model:
   num_graph_update: 2 # 1
