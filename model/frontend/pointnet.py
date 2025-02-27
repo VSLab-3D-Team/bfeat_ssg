@@ -8,20 +8,21 @@ import torch.nn.functional as F
 
 
 class STN3d(nn.Module):
-    def __init__(self, device, channel):
+    def __init__(self, device, channel, out_dim=512):
         super(STN3d, self).__init__()
         self.device = device
+        self.out_dim = out_dim
         self.conv1 = torch.nn.Conv1d(channel, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
-        self.conv3 = torch.nn.Conv1d(128, 512, 1)
-        self.fc1 = nn.Linear(512, 512)
+        self.conv3 = torch.nn.Conv1d(128, out_dim, 1)
+        self.fc1 = nn.Linear(out_dim, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 9)
         self.relu = nn.ReLU()
 
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(128)
-        self.bn3 = nn.BatchNorm1d(512)
+        self.bn3 = nn.BatchNorm1d(out_dim)
         self.bn4 = nn.BatchNorm1d(512)
         self.bn5 = nn.BatchNorm1d(256)
 
@@ -31,7 +32,7 @@ class STN3d(nn.Module):
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = torch.max(x, 2, keepdim=True)[0]
-        x = x.view(-1, 512)
+        x = x.view(-1, self.out_dim)
 
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
@@ -48,20 +49,21 @@ class STN3d(nn.Module):
 
 
 class STNkd(nn.Module):
-    def __init__(self, device, k=64):
+    def __init__(self, device, k=64, out_dim=512):
         super(STNkd, self).__init__()
         self.device = device
+        self.out_dim = out_dim
         self.conv1 = torch.nn.Conv1d(k, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
         self.conv3 = torch.nn.Conv1d(128, 512, 1)
-        self.fc1 = nn.Linear(512, 512)
+        self.fc1 = nn.Linear(out_dim, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, k * k)
         self.relu = nn.ReLU()
 
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(128)
-        self.bn3 = nn.BatchNorm1d(512)
+        self.bn3 = nn.BatchNorm1d(out_dim)
         self.bn4 = nn.BatchNorm1d(512)
         self.bn5 = nn.BatchNorm1d(256)
 
@@ -73,7 +75,7 @@ class STNkd(nn.Module):
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = torch.max(x, 2, keepdim=True)[0]
-        x = x.view(-1, 512)
+        x = x.view(-1, self.out_dim)
 
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
@@ -90,19 +92,20 @@ class STNkd(nn.Module):
 
 
 class PointNetEncoder(nn.Module):
-    def __init__(self, device, global_feat=True, feature_transform=False, channel=3):
+    def __init__(self, device, global_feat=True, feature_transform=False, channel=3, out_dim=512):
         super(PointNetEncoder, self).__init__()
-        self.stn = STN3d(device, channel)
+        self.out_dim = out_dim
+        self.stn = STN3d(device, channel, out_dim=out_dim)
         self.conv1 = torch.nn.Conv1d(channel, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
-        self.conv3 = torch.nn.Conv1d(128, 512, 1)
+        self.conv3 = torch.nn.Conv1d(128, out_dim, 1)
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(128)
-        self.bn3 = nn.BatchNorm1d(512)
+        self.bn3 = nn.BatchNorm1d(out_dim)
         self.global_feat = global_feat
         self.feature_transform = feature_transform
         if self.feature_transform:
-            self.fstn = STNkd(device, k=64)
+            self.fstn = STNkd(device, k=64, out_dim=out_dim)
 
     def forward(self, x):
         B, D, N = x.size()
@@ -129,11 +132,11 @@ class PointNetEncoder(nn.Module):
         x = F.relu(self.bn2(self.conv2(x)))
         x = self.bn3(self.conv3(x))
         x = torch.max(x, 2, keepdim=True)[0]
-        x = x.view(-1, 512)
+        x = x.view(-1, self.out_dim)
         if self.global_feat:
             return x, trans, trans_feat
         else:
-            x = x.view(-1, 512, 1).repeat(1, 1, N)
+            x = x.view(-1, self.out_dim, 1).repeat(1, 1, N)
             return torch.cat([x, pointfeat], 1), trans, trans_feat
 
 

@@ -43,6 +43,7 @@ class EntireExperimentRunners(BaseExperimentRunner):
         loader = iter(self.v_dataloader)
         
         topk_obj_list, topk_rel_list, topk_triplet_list, cls_matrix_list = np.array([]), np.array([]), np.array([]), []
+        gt_rel_cls_list = np.array([])
         sub_scores_list, obj_scores_list, rel_scores_list = [], [], []
         sgcls_recall_list_wo, predcls_recall_list_wo, sgcls_recall_list_w, predcls_recall_list_w, sgcls_mean_recall_list_w, predcls_mean_recall_list_w  = [],[],[],[],[],[]
         logs = []
@@ -154,10 +155,10 @@ class EntireExperimentRunners(BaseExperimentRunner):
         
         sgcls_recall_wo=np.mean(sgcls_recall_list_wo,axis=0)
         predcls_recall_wo=np.mean(predcls_recall_list_wo,axis=0)
-        sgcls_recall_w=np.mean(sgcls_recall_list_w, axis=0)
-        predcls_recall_w=np.mean(predcls_recall_list_w, axis=0) 
-        sgcls_mean_recall_w = handle_mean_recall(sgcls_mean_recall_list_w)
-        predcls_mean_recall_w = handle_mean_recall(predcls_mean_recall_list_w)
+        # sgcls_recall_w=np.mean(sgcls_recall_list_w, axis=0)
+        # predcls_recall_w=np.mean(predcls_recall_list_w, axis=0) 
+        # sgcls_mean_recall_w = handle_mean_recall(sgcls_mean_recall_list_w)
+        # predcls_mean_recall_w = handle_mean_recall(predcls_mean_recall_list_w)
         
         rel_acc_mean_1, rel_acc_mean_3, rel_acc_mean_5 = self.compute_mean_predicate(cls_matrix_list, topk_rel_list)
         self.compute_predicate_acc_per_class(cls_matrix_list, topk_rel_list)
@@ -191,23 +192,24 @@ class EntireExperimentRunners(BaseExperimentRunner):
             ("Predcls_wo@20", predcls_recall_wo[0]),
             ("Predcls_wo@50", predcls_recall_wo[1]),
             ("Predcls_wo@100", predcls_recall_wo[2]),
-            ("SGcls_w@20", sgcls_recall_w[0]),
-            ("SGcls_w@50", sgcls_recall_w[1]),
-            ("SGcls_w@100", sgcls_recall_w[2]),
-            ("Predcls_w@20", predcls_recall_w[0]),
-            ("Predcls_w@50", predcls_recall_w[1]),
-            ("Predcls_w@100", predcls_recall_w[2]),
-            ("SGcls_mean_w@20", sgcls_mean_recall_w[0]),
-            ("SGcls_mean_w@50", sgcls_mean_recall_w[1]),
-            ("SGcls_mean_w@100", sgcls_mean_recall_w[2]),
-            ("Predcls_mean_w@20", predcls_mean_recall_w[0]),
-            ("Predcls_mean_w@50", predcls_mean_recall_w[1]),
-            ("Predcls_mean_w@100", predcls_mean_recall_w[2]),
+            # ("SGcls_w@20", sgcls_recall_w[0]),
+            # ("SGcls_w@50", sgcls_recall_w[1]),
+            # ("SGcls_w@100", sgcls_recall_w[2]),
+            # ("Predcls_w@20", predcls_recall_w[0]),
+            # ("Predcls_w@50", predcls_recall_w[1]),
+            # ("Predcls_w@100", predcls_recall_w[2]),
+            # ("SGcls_mean_w@20", sgcls_mean_recall_w[0]),
+            # ("SGcls_mean_w@50", sgcls_mean_recall_w[1]),
+            # ("SGcls_mean_w@100", sgcls_mean_recall_w[2]),
+            # ("Predcls_mean_w@20", predcls_mean_recall_w[0]),
+            # ("Predcls_mean_w@50", predcls_mean_recall_w[1]),
+            # ("Predcls_mean_w@100", predcls_mean_recall_w[2]),
         ] 
+        progbar.add(1, values=logs)
         with open(f"./outputs/results_{self.model_name}_{self.ckp_name}.txt", 'w') as f:
-            f.write("Evaluation results:")
-            f.write("-----------------------------------------------------")
+            f.write("Evaluation results:\n")
+            f.write("-----------------------------------------------------\n")
             for name, value in results:
-                f.write(f"{name}: {value}")
+                f.write(f"{name}: {value}\n")
             f.write("-----------------------------------------------------")
         

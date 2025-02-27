@@ -46,7 +46,7 @@ class RelFeatMergeExtractor(nn.Module):
         return edge_init_feats # think novel method
 
 class RelFeatPointExtractor(nn.Module):
-    def __init__(self, config, device):
+    def __init__(self, config, device, out_dims=512):
         super(RelFeatPointExtractor, self).__init__()
         self.config = config
         self.m_config = config.model
@@ -56,8 +56,7 @@ class RelFeatPointExtractor(nn.Module):
         if self.m_config.use_normal:
             self.dim_pts += 3
         self.device = device
-        self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
-        
+        self.point_encoder = PointNetEncoder(device, channel=self.dim_pts, out_dim=out_dims)
         
     def forward(self, rel_pts):
         rel_feats, _, _ = self.point_encoder(rel_pts)

@@ -240,6 +240,8 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
             self.d_config.multi_rel, device
         )
         self.__make_freq_prob_dist()
+        assert "num_tri_neg_samples" in self.t_config
+        self.num_neg_samples = self.t_config.num_tri_neg_samples
         assert self.num_neg_samples % 3 == 0, "# of Negative sample must be divided into 3"
         self.num_negs_per_type = self.num_neg_samples // 3
         
@@ -247,16 +249,10 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
         f_temperature = self.t_config.freq_temperature
         self.prob_obj_sample = F.softmax(self.w_cls_obj / f_temperature, dim=0)
         self.prob_rel_sample = F.softmax(self.w_cls_rel / f_temperature, dim=0)
+        print("Predicate Contrastive Sampler Distribution: ", self.prob_rel_sample)
     
-    def __sample_neg_predicate(self, anchor_idx):
-        if not anchor_idx == -1: # If anchor is not none
-            sample_dist = self.prob_rel_sample.clone()
-            sample_dist[anchor_idx] = 0.
-            sample_dist = sample_dist / sample_dist.sum()
-        else:
-            sample_dist = self.prob_rel_sample.clone()
-        sample_indices = torch.multinomial(sample_dist, self.num_negs_per_type, replacement=False)
-        # s_list = np.array(self.rel_label_list)[sample_indices.cpu().numpy()]
+    def __sample_neg_predicate(self, neg_dist):
+        sample_indices = torch.multinomial(neg_dist, self.num_negs_per_type, replacement=False)
         return sample_indices
     
     def __sample_neg_object(self, sub_anchor_idx, obj_anchor_idx):
@@ -265,18 +261,24 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
         sample_dist[obj_anchor_idx] = 0.
         sample_dist = sample_dist / sample_dist.sum()
         sample_indices = torch.multinomial(sample_dist, 2 * self.num_negs_per_type, replacement=False)
-        # s_list = np.array(self.obj_label_list)[sample_indices.cpu().numpy()]
         return sample_indices
     
-    def __sample_neg_triplet(self, sub_anchor_idx, pred_anchor_idx, obj_anchor_idx):
-        pred_neg_labels = self.__sample_neg_predicate(pred_anchor_idx)
+    def __sample_neg_triplet(self, sub_anchor_idx, neg_dist, obj_anchor_idx, pred_pos_index):
+        pred_neg_labels = self.__sample_neg_predicate(neg_dist)
         neg_labels = self.__sample_neg_object(sub_anchor_idx, obj_anchor_idx)
         obj_neg_labels = neg_labels[: self.num_negs_per_type]
         sub_neg_labels = neg_labels[self.num_negs_per_type: ]
+        pred_anchor_idx = torch.multinomial(pred_pos_index, 1, replacement=False).int().item()
         sub_neg_samples = self.embedding_vector_loader[sub_neg_labels, obj_anchor_idx, pred_anchor_idx, :].clone().detach() # N_neg X N_feat
         obj_neg_samples = self.embedding_vector_loader[sub_anchor_idx, obj_neg_labels, pred_anchor_idx, :].clone().detach() # N_neg X N_feat
         pred_neg_samples = self.embedding_vector_loader[sub_anchor_idx, obj_anchor_idx, pred_neg_labels, :].clone().detach() # N_neg X N_feat
         return torch.vstack([sub_neg_samples, obj_neg_samples, pred_neg_samples])
+    
+    def __get_distributions(self, pred_labels: torch.Tensor):
+        sample_dist = self.prob_rel_sample.clone()
+        sample_dist[pred_labels.bool()] = 0. # [ False, True, False, False, True ] -> [ x_1, 0., x_3, x_4, 0 ]
+        sample_dist = sample_dist / sample_dist.sum()
+        return sample_dist 
     
     @torch.no_grad()
     def sample(self, objs_target, rels_target, edges):
@@ -307,16 +309,20 @@ class ContrastiveTripletSampler(ContrastiveAbstractSampler):
                 pos_feat = self.none_emb[target_sub_idx, target_obj_idx, :]
                 target_pos_token.append(pos_feat.unsqueeze(0))
                 
-                neg_feats = self.__sample_neg_triplet(target_sub_idx, -1, target_obj_idx)
+                neg_feats = self.__sample_neg_triplet(
+                    target_sub_idx, self.prob_rel_sample.clone(), target_obj_idx, torch.ones(len(self.rel_label_list))
+                )
                 target_neg_token.append(neg_feats.unsqueeze(0))
                 rel_index.append(edge_index)
             else:
+                neg_dist = self.__get_distributions(rels_target[edge_index])
                 for i in range(rels_target.shape[-1]):
                     if rels_target[edge_index][i] == 1:
                         pos_feat = self.embedding_vector_loader[target_sub_idx, target_obj_idx, i, :]
                         target_pos_token.append(pos_feat.unsqueeze(0))
-                        
-                        neg_feats = self.__sample_neg_triplet(objs_target[idx_eo], i, objs_target[idx_os])
+                        neg_feats = self.__sample_neg_triplet(
+                            objs_target[idx_eo], neg_dist, objs_target[idx_os], rels_target[edge_index]
+                        )
                         target_neg_token.append(neg_feats.unsqueeze(0)) # 1 X N_neg X N_feat
                         rel_index.append(edge_index)
         

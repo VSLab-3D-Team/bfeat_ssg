@@ -32,6 +32,7 @@ train:
   lambda_obj: 0.1
   lambda_rel: 0.25
   lambda_con: 1.0
+  oversampling: false
 
 model:
   num_graph_update: 2
@@ -46,6 +47,7 @@ model:
   flow: target_to_source
   num_layers: 6
   relation_type: "resnet"
+  edge_attention: true
 
 optimizer:
   learning_rate: 0.0001

@@ -22,9 +22,9 @@ class BaseExperimentRunner(ABC):
         self.v_dataloader = CustomDataLoader(
             self.d_config, 
             self.v_dataset, 
-            batch_size=self.t_config.batch_size,
+            batch_size=1,
             num_workers=self.t_config.workers,
-            shuffle=True,
+            shuffle=False,
             drop_last=True,
             collate_fn=collate_fn_bfeat
         )

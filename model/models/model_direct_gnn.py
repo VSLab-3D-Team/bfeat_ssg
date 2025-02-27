@@ -52,6 +52,7 @@ class BFeatDirectGNNNet(BaseNetwork):
             self.m_config.dim_attn,
             num_heads=self.m_config.num_heads,
             depth=self.m_config.num_graph_update,
+            edge_attn=self.m_config.edge_attention,
             DROP_OUT_ATTEN=self.t_config.drop_out
         ).to(self.device)
         

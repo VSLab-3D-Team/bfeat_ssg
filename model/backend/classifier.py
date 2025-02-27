@@ -12,7 +12,9 @@ def consine_classification_obj(
     cls_matrix: torch.Tensor, # C X N_feat
     obj_feat: torch.Tensor   # B X N_feat
 ):
-    sim_matrix = torch.mm(obj_feat, cls_matrix.T) # B X C
+    _obj_feat = F.normalize(obj_feat, dim=-1)
+    _cls_matrix = F.normalize(cls_matrix, dim=-1)
+    sim_matrix = torch.mm(_obj_feat, _cls_matrix.T) # B X C
     obj_pred = F.softmax(sim_matrix, dim=1)
     return obj_pred
 
@@ -22,35 +24,7 @@ class RelCosineClassifier():
         self.relation_cls = relation_cls
         self.device = device
         self.encoder, _ = clip.load("ViT-B/32", device=device)
-        # N_emb_mat = len(self.object_cls)
         self.embedding_vector_loader = emb_vec
-        # self.__build_embedding_storage()
-    
-    @torch.no_grad()
-    def __crazy_negative_embedding(self, token_vecs: torch.Tensor):
-        """
-        Embrace the bullshit.
-        GPU is too expensive.
-        FXXK YOU NVIDIA
-        """
-        target_feats = []
-        for n_i in range(len(self.relation_cls)):
-            t_tokens = token_vecs[:, n_i, :] # N_obj_cls X N_token
-            target_feats.append(self.encoder.encode_text(t_tokens).float().unsqueeze(1))
-        return torch.cat(target_feats, dim=1) # N_obj_cls X N_rel_cls X N_token
-    
-    @torch.no_grad()
-    def __build_embedding_storage(self):
-        for i, k_s in tqdm(enumerate(self.object_cls)):
-            rel_text_prompt = []
-            for _, k_o in enumerate(self.object_cls):
-                prompt_ij = clip.tokenize(
-                    [ f"a point cloud of a {k_s} {x} a {k_o}" for x in self.relation_cls ]
-                ).to(self.device)
-                rel_text_prompt.append(prompt_ij.unsqueeze(0))
-            rel_prompt_batch = torch.vstack(rel_text_prompt) # N_obj_cls X N_rel_cls X N_token
-            rel_feat_cls = self.__crazy_negative_embedding(rel_prompt_batch)
-            self.embedding_vector_loader[i, ...] = rel_feat_cls.clone()
 
     @torch.no_grad()
     def __call__(self, 

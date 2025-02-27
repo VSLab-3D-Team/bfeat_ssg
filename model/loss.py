@@ -7,6 +7,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+def update_temperature_based_on_gradient(loss, temperature, alpha=0.001):
+    grad = torch.autograd.grad(loss, temperature, retain_graph=True)[0]  # τ에 대한 Gradient
+    temperature = temperature - alpha * grad  # Gradient Descent 방식 업데이트
+    return torch.clamp(temperature, min=0.01, max=1.0)  # 범위 제한
+
 class WeightedFocalLoss(nn.Module):
     def __init__(self, alpha=1.0, gamma=2.0):
         """
@@ -254,15 +259,15 @@ class CrossModalInfoNCE(nn.Module):
         """
         non_zero_mask = x != 0
         sum_non_zero = x.sum(dim=2, keepdim=True).sum(dim=1, keepdim=True) # B X 1 X 1
-        count_non_zero = non_zero_mask.sum(dim=2, keepdim=True).sum(dim=1, keepdim=True) # B X 1 X 1
-        mean_non_zero = torch.where(count_non_zero > 0, sum_non_zero / count_non_zero, torch.zeros_like(sum_non_zero).to(self.device))
+        count_non_zero = non_zero_mask.sum(dim=2, keepdim=True).sum(dim=1, keepdim=True).clamp(1.0) # B X 1 X 1
+        mean_non_zero = sum_non_zero / count_non_zero
         return mean_non_zero
     
     def __text_nonzero_mean(self, x: torch.Tensor):
         non_zero_mask = x != 0
         sum_non_zero = x.sum(dim=1, keepdim=True) # B X 1
-        count_non_zero = non_zero_mask.sum(dim=1, keepdim=True) # B X 1 
-        mean_non_zero = torch.where(count_non_zero > 0, sum_non_zero / count_non_zero, torch.zeros_like(sum_non_zero).to(self.device))
+        count_non_zero = non_zero_mask.sum(dim=1, keepdim=True).clamp(1.0) # B X 1 
+        mean_non_zero = sum_non_zero / count_non_zero
         return mean_non_zero
     
     def forward(
@@ -326,15 +331,15 @@ class CrossModalNXTent(nn.Module):
         """
         non_zero_mask = x != 0
         sum_non_zero = x.sum(dim=2, keepdim=True).sum(dim=1, keepdim=True) # B X 1 X 1
-        count_non_zero = non_zero_mask.sum(dim=2, keepdim=True).sum(dim=1, keepdim=True) # B X 1 X 1
-        mean_non_zero = torch.where(count_non_zero > 0, sum_non_zero / count_non_zero, torch.zeros_like(sum_non_zero).to(self.device))
+        count_non_zero = non_zero_mask.sum(dim=2, keepdim=True).sum(dim=1, keepdim=True).clamp(1.0) # B X 1 X 1
+        mean_non_zero = sum_non_zero / count_non_zero
         return mean_non_zero
     
     def __text_nonzero_mean(self, x: torch.Tensor):
         non_zero_mask = x != 0
         sum_non_zero = x.sum(dim=1, keepdim=True) # B X 1
-        count_non_zero = non_zero_mask.sum(dim=1, keepdim=True) # B X 1 
-        mean_non_zero = torch.where(count_non_zero > 0, sum_non_zero / count_non_zero, torch.zeros_like(sum_non_zero).to(self.device))
+        count_non_zero = non_zero_mask.sum(dim=1, keepdim=True).clamp(1.0) # B X 1 
+        mean_non_zero = sum_non_zero / count_non_zero
         return mean_non_zero
     
     def forward(

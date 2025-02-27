@@ -11,3 +11,4 @@ from runners.trainer_gcn import BFeatTripletGCNTrainer
 from runners.trainer_jjam_point import BFeatJjamTongSGGPointTrainer
 from runners.trainer_point import BFeatSGGPointTrainer
 from runners.trainer_jjam_gcn import BFeatJjamTongTripletGCNTrainer
+from runners.trainer_full_scl import BFeatFullSCLTrainer
