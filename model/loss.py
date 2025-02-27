@@ -391,9 +391,10 @@ class CrossModalNXTent(nn.Module):
             loss_bt = self.__text_nonzero_mean(l_bp)
             return torch.mean(loss_bt)
 
-class SupervisedPcdNXTentLoss(nn.Module):
-    def __init__(self):
-        super(SupervisedPcdNXTentLoss, self).__init__()
+class PcdInfoNCE(nn.Module):
+    def __init__(self, device, temperature=0.07):
+        super(PcdInfoNCE, self).__init__()
+        
         
     def forward(self):
         return
