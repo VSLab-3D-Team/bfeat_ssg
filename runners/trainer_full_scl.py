@@ -142,7 +142,7 @@ class BFeatFullSCLTrainer(BaseTrainer):
 
                 # Object Encoder Contrastive loss
                 text_feat = self.__get_text_feat(gt_obj_label)
-                loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, zero_mask) # gt_obj_label,
+                loss_cm_visual = self.cm_visual_criterion(obj_feats, rgb_feats, gt_obj_label, zero_mask)
                 loss_cm_text = self.cm_text_criterion(obj_feats, text_feat, gt_obj_label)
                 loss_reg = feature_transform_reguliarzer(trans)
                 obj_loss = loss_cm_visual + loss_cm_text + 0.1 * loss_reg
