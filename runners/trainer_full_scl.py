@@ -48,9 +48,10 @@ class BFeatFullSCLTrainer(BaseTrainer):
         else:
             raise NotImplementedError
         # Loss function 
-        self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
-        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
+        temperature = torch.tensor(self.t_config.loss_temperature, requires_grad=True)
+        self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=temperature).to(self.device)
+        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=temperature) 
+        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=temperature) 
         
         # Add trace meters
         self.add_meters([
