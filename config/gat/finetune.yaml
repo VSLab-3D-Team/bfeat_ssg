@@ -8,16 +8,16 @@ dataset:
   all_edges: true
   padding: 0.2
   seed: 2025
-  relpts: "scene"
+  relpts: "obj_only"
 
 train:
-  ckp_path: ./model_checkpoints/pretrained_nh_best.pth
+  ckp_path: ./model_checkpoints/pretrain_lw.pth
   name: GAT
   epoch: 1000
   log_interval: 5
   evaluation_interval: 5
   save_interval: 10
-  batch_size: 6
+  batch_size: 4
   workers: 8
   wandb_path: ./wandb
   wandb_project: bfeat_sg_finetune
@@ -31,12 +31,10 @@ train:
   sampler: 'frequency'
   freq_temperature: 0.3 # 0.5, 2
   loss_temperature: 0.3
-  lambda_tri_con: 0.1
-  lambda_obj_con: 1.0
-  lambda_con: 1.0
+  lambda_obj: 0.1
+  lambda_rel: 1.0
   oversampling: false
-  relpts: "scene"
-
+  
 model:
   num_graph_update: 2 # 1
   layers: 50

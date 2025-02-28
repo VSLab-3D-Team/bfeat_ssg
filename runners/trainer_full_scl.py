@@ -21,7 +21,7 @@ class BFeatFullSCLTrainer(BaseTrainer):
         self.m_config = config.model
         # Model Definitions
         self.build_text_classifier()
-        self.triplet_sampler = ContrastiveTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
+        # self.triplet_sampler = ContrastiveTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
         self.model = BFeatFullSCLNet(self.config, device).to(device)
         ## Contrastive loss only for Relationship Feature extractor
         self.rel_classifier = RelCosineClassifier(
@@ -50,8 +50,8 @@ class BFeatFullSCLTrainer(BaseTrainer):
         # Loss function 
         # temperature = torch.tensor(self.t_config.loss_temperature, requires_grad=True)
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
-        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
-        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=self.t_config.loss_temperature) 
+        self.cm_visual_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
+        self.cm_text_criterion = SupervisedCrossModalInfoNCE(self.device, temperature=0.07) 
         
         # Add trace meters
         self.add_meters([
@@ -151,16 +151,16 @@ class BFeatFullSCLTrainer(BaseTrainer):
                 contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
                 
                 # Triplet Contrastive sampler
-                pos_tri_pair, neg_tri_pair, rel_tri_indices = self.triplet_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
-                tri_contrastive_loss = self.c_criterion(tri_feats, pos_tri_pair, neg_tri_pair, rel_tri_indices)
+                # pos_tri_pair, neg_tri_pair, rel_tri_indices = self.triplet_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
+                # tri_contrastive_loss = self.c_criterion(tri_feats, pos_tri_pair, neg_tri_pair, rel_tri_indices)
                 
                 # TODO: determine coefficient for each loss
                 lambda_c = self.t_config.lambda_con
                 lambda_oc = self.t_config.lambda_obj_con
                 lambda_tri = self.t_config.lambda_tri_con
                 t_loss = lambda_c * contrastive_loss + \
-                    lambda_oc * obj_loss + \
-                    lambda_tri * tri_contrastive_loss
+                    lambda_oc * obj_loss # + \
+                    # lambda_tri * tri_contrastive_loss
                 t_loss.backward()
                 self.optimizer.step()
                 # self.c_criterion.temperature = update_temperature_based_on_gradient(t_loss, self.c_criterion.temperature)

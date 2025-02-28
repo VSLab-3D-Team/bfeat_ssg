@@ -14,7 +14,7 @@ def consine_classification_obj(
 ):
     _obj_feat = F.normalize(obj_feat, dim=-1)
     _cls_matrix = F.normalize(cls_matrix, dim=-1)
-    sim_matrix = torch.mm(_obj_feat, _cls_matrix.T) # B X C
+    sim_matrix = torch.mm(_obj_feat, _cls_matrix.T) / 0.1 # B X C
     obj_pred = F.softmax(sim_matrix, dim=1)
     return obj_pred
 
@@ -46,7 +46,7 @@ class RelCosineClassifier():
         
         edge_feat = F.normalize(edge_feat, dim=-1)
         rel_feat_cls = F.normalize(rel_feat_cls, dim=-1)
-        edge_pred = torch.einsum('bn,bcn->bc', edge_feat, rel_feat_cls)
+        edge_pred = torch.einsum('bn,bcn->bc', edge_feat, rel_feat_cls) / 0.1
         return torch.sigmoid(edge_pred) # B_e X N_rel_cls
 
 class ObjectClsMulti(BaseNetwork):

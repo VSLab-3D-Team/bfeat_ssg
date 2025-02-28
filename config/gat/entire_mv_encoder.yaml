@@ -47,7 +47,7 @@ model:
   flow: target_to_source
   num_layers: 6
   relation_type: "resnet"
-  edge_attention: true
+  edge_attention: false
 
 optimizer:
   learning_rate: 0.0001
