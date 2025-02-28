@@ -47,7 +47,7 @@ class ProjectHead(nn.Module):
         super(ProjectHead, self).__init__()
         
         self.layers = nn.Sequential(
-            nn.Linear(dims[i - 1], dims[i]) for i in range(1, len(dims)) 
+            *[ nn.Linear(dims[i - 1], dims[i]) for i in range(1, len(dims)) ]
         )
     
     def forward(self, x):

@@ -74,12 +74,12 @@ class EntireExperimentRunners(BaseExperimentRunner):
             _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
             top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
             gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
-            top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6, confidence_threshold=0.3)
+            top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6, confidence_threshold=0.9)
             top_k_triplet, cls_matrix, sub_scores, obj_scores, rel_scores = \
                 evaluate_triplet_topk(
                     obj_pred.detach(), rel_pred.detach(), 
                     gt_edges, edge_indices, self.d_config.multi_rel, 
-                    topk=101, use_clip=True, obj_topk=top_k_obj, confidence_threshold=0.3
+                    topk=101, use_clip=True, obj_topk=top_k_obj, confidence_threshold=0.9
                 )
             
             sgcls_recall_wo = evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='triplet')

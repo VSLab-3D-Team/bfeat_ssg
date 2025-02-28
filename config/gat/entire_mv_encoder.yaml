@@ -8,6 +8,7 @@ dataset:
   all_edges: true
   padding: 0.2
   seed: 2025
+  relpts: "obj_only"
 
 train:
   ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
