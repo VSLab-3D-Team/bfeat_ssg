@@ -102,6 +102,9 @@ class MultiHeadedEdgeAttention(torch.nn.Module):
     def forward(self, query, edge, value, weight=None, istrain=False):
         batch_dim = query.size(0)
 
+        # edge_feature = torch.cat([query, edge, value], dim=1)
+        # edge_feature = self.nn_edge(edge_feature)
+
         # Edge update 
         combined_obj = query + value
         combined_obj_proj = self.obj_projection(combined_obj)
