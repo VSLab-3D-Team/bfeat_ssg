@@ -72,6 +72,11 @@ class MultiHeadedEdgeAttention(torch.nn.Module):
         self.nn_edge = build_mlp([dim_node*2+dim_edge,(dim_node+dim_edge),dim_edge],
                           do_bn= use_bn, on_last=False)
         self.mask_obj = 0.5
+
+        self.obj_projection = build_mlp([dim_node, dim_edge])
+        self.cross_attention = MultiHeadAttention(d_model=dim_edge, d_k=dim_edge//num_heads, d_v=dim_edge//num_heads, h=num_heads)
+        self.reverse_cross_attention = MultiHeadAttention(d_model=dim_edge, d_k=dim_edge//num_heads, d_v=dim_edge//num_heads, h=num_heads)
+        self.edge_update = build_mlp([dim_edge*3, dim_edge*2, dim_edge])
         
         DROP_OUT_ATTEN = None
         if 'DROP_OUT_ATTEN' in kwargs:
@@ -96,14 +101,16 @@ class MultiHeadedEdgeAttention(torch.nn.Module):
         
     def forward(self, query, edge, value, weight=None, istrain=False):
         batch_dim = query.size(0)
+
+        # Edge update 
+        combined_obj = query + value
+        combined_obj_proj = self.obj_projection(combined_obj)
         
-        edge_feature = torch.cat([query, edge, value],dim=1)
-        # avoid overfitting by mask relation input object feature
-        # if random.random() < self.mask_obj and istrain: 
-        #     feat_mask = torch.cat([torch.ones_like(query),torch.zeros_like(edge), torch.ones_like(value)],dim=1)
-        #     edge_feature = torch.where(feat_mask == 1, edge_feature, torch.zeros_like(edge_feature))
+        cross_attention = self.cross_attention(combined_obj_proj, edge, edge)
+        reverse_cross_attention = self.reverse_cross_attention(edge, combined_obj_proj, combined_obj_proj)
         
-        edge_feature = self.nn_edge( edge_feature )#.view(b, -1, 1)
+        edge_feature = self.edge_update(torch.cat([edge, cross_attention, reverse_cross_attention], dim=1))
+
 
         if self.attention == 'fat':
             value = self.proj_value(value)
