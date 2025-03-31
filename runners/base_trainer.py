@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List
 from dataset.dataloader import CustomDataLoader, collate_fn_bfeat, collate_fn_bfeat_mv, SSGImbalanceSampler
-from dataset import build_dataset, build_dataset_multi_view
+from dataset import build_dataset, build_dataset_multi_view, build_dataset_and_loader
 from utils.logger import build_meters, AverageMeter
 from utils.contrastive_utils import *
 from utils.eval_utils import *
@@ -15,7 +15,7 @@ from datetime import datetime
 import os
 
 class BaseTrainer(ABC):
-    def __init__(self, config, device, multi_view_ssl=False):
+    def __init__(self, config, device, multi_view_ssl=False, geo_aux=False):
         super().__init__()
         self.config = config
         self.device = device
@@ -23,64 +23,37 @@ class BaseTrainer(ABC):
         self.d_config = config.dataset
         self.m_config = config.model
         self.opt_config = config.optimizer
-        if not multi_view_ssl:
-            self.t_dataset = build_dataset(self.d_config, split="train_scans", device=device)
-            self.v_dataset = build_dataset(self.d_config, split="validation_scans", device=device)
-            w_sampler = SSGImbalanceSampler(self.t_dataset) if self.t_config.oversampling else None
-            is_shuffle = True if not self.t_config.oversampling else False
-            self.t_dataloader = CustomDataLoader(
-                self.d_config, 
-                self.t_dataset, 
-                batch_size=self.t_config.batch_size,
-                num_workers=self.t_config.workers,
-                sampler=w_sampler,
-                shuffle=is_shuffle,
-                drop_last=True,
-                collate_fn=collate_fn_bfeat
-            )
-            self.v_dataloader = CustomDataLoader(
-                self.d_config, 
-                self.v_dataset, 
-                batch_size=1,
-                num_workers=self.t_config.workers,
-                shuffle=False,
-                drop_last=True,
-                collate_fn=collate_fn_bfeat
-            )
+        if not multi_view_ssl and not geo_aux:
+            self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
+                build_dataset_and_loader(
+                    "vanilla", 
+                    self.d_config, 
+                    self.device, 
+                    self.t_config.batch_size, 
+                    self.t_config.workers, 
+                    self.t_config.oversampling
+                )
+        elif not multi_view_ssl and geo_aux:
+            self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
+                build_dataset_and_loader(
+                    "edge_view_aux", 
+                    self.d_config, 
+                    self.device, 
+                    self.t_config.batch_size, 
+                    self.t_config.workers, 
+                    self.t_config.oversampling
+                )
         else :
-            self.t_dataset = build_dataset_multi_view(
-                self.d_config, 
-                split="train_scans", 
-                device=device, 
-                d_feats=self.config.model.dim_obj_feats
-            )
-            self.v_dataset = build_dataset_multi_view(
-                self.d_config, 
-                split="validation_scans", 
-                device=device, 
-                d_feats=self.config.model.dim_obj_feats
-            )
-            w_sampler = SSGImbalanceSampler(self.t_dataset) if self.t_config.oversampling else None
-            is_shuffle = True if not self.t_config.oversampling else False
-            self.t_dataloader = CustomDataLoader(
-                self.d_config, 
-                self.t_dataset, 
-                batch_size=self.t_config.batch_size,
-                num_workers=self.t_config.workers,
-                sampler=w_sampler,
-                shuffle=is_shuffle,
-                drop_last=True,
-                collate_fn=collate_fn_bfeat_mv
-            )
-            self.v_dataloader = CustomDataLoader(
-                self.d_config, 
-                self.v_dataset, 
-                batch_size=1,
-                num_workers=self.t_config.workers,
-                shuffle=False,
-                drop_last=True,
-                collate_fn=collate_fn_bfeat_mv
-            )
+            self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
+                build_dataset_and_loader(
+                    "multi-view",
+                    self.d_config, 
+                    self.device, 
+                    self.t_config.batch_size, 
+                    self.t_config.workers, 
+                    self.t_config.oversampling,
+                    dfeats=self.config.model.dim_obj_feats
+                )
         print("length of training data:", len(self.t_dataset))
         print("length of validation data:", len(self.v_dataset))
         

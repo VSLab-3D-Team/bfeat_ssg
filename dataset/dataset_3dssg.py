@@ -283,7 +283,7 @@ class SSGLWBFeat3DwMultiModal(Dataset):
     '''
     Cropping object point cloud from point cloud of entire scene 
     '''
-    def __crop_obj_pts(self, s_point, obj_mask, instance_id, num_sample_pts, padding=0.2):
+    def __crop_obj_pts(self, s_point, obj_mask, instance_id, num_sample_pts, padding=0.2, is_obj=True):
         obj_pointset = s_point[np.where(obj_mask == instance_id)[0]]
         min_box = np.min(obj_pointset[:,:3], 0) - padding
         max_box = np.max(obj_pointset[:,:3], 0) + padding
@@ -292,7 +292,8 @@ class SSGLWBFeat3DwMultiModal(Dataset):
         obj_pointset = obj_pointset[choice, :]
         descriptor = gen_descriptor(torch.from_numpy(obj_pointset)[:,:3])
         obj_pointset = torch.from_numpy(obj_pointset.astype(np.float32))
-        obj_pointset[:,:3] = self.zero_mean(obj_pointset[:,:3])
+        if is_obj:
+            obj_pointset[:,:3] = self.zero_mean(obj_pointset[:,:3])
         return obj_pointset, obj_bbox, descriptor
     
     '''
@@ -396,8 +397,8 @@ class SSGLWBFeat3DwMultiModal(Dataset):
             instance2 = nodes[edge[1]]
 
             if self.config.relpts == "obj_only":
-                obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
-                obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding) # dim: N_pts X self.dim_pts
+                obj_pts_1, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance1, num_pts_normalized, padding, is_obj=False) # dim: N_pts X self.dim_pts
+                obj_pts_2, _, _ = self.__crop_obj_pts(scene_points, obj_masks, instance2, num_pts_normalized, padding, is_obj=False) # dim: N_pts X self.dim_pts
                 
                 edge_pts = np.concatenate([obj_pts_1, obj_pts_2], axis=0) # dim: (2 * N_pts) X self.dim_pts
                 rel_points.append(torch.from_numpy(edge_pts.astype(np.float32))) # 

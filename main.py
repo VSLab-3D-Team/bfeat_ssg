@@ -10,9 +10,9 @@ parser = argparse.ArgumentParser(description="Training BFeat Architecture")
 parser.add_argument("--mode", type=str, default="train", choices=["train", "experiment"], help="Select mode for BFeat (train/evaluation)")
 parser.add_argument("--runners", 
     type=str, default="vanilla", 
-    choices=["vanilla", "jjamtong", "full_scl", "direct_gnn", "finetune" ], # , "triplet_gcn", "jjamtong_gcn", "sgg_point", "jjamtong_point"], 
+    choices=["vanilla", "jjamtong", "full_scl", "direct_gnn", "geo_aux", "finetune" ], 
     help="Select running model"
-) # "skipobj", "con_relonly", "triplet_con", "aux_con", 
+) # "skipobj", "con_relonly", "triplet_con", "aux_con" , "triplet_gcn", "jjamtong_gcn", "sgg_point", "jjamtong_point"], 
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
 parser.add_argument("--exp_explain", type=str, default="default", help="Runtime configuration file path")
 parser.add_argument("--ckp_path", type=str, help="Resume training from checkpoint")
@@ -32,6 +32,8 @@ def train(config):
     #     trainer = BFeatRelOnlyContrasTrainer(config, device)
     elif args.runners == "direct_gnn":
         trainer = BFeatDirectGNNTrainer(config, device)
+    elif args.runners == "geo_aux":
+        trainer = BFeatGeoAuxTrainer(config, device)
     # elif args.runners == "triplet_con":
     #     trainer = BFeatTripletContrastiveTrainer(config, device)
     # elif args.runners == "aux_con":
