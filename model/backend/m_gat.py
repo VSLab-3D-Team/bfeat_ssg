@@ -522,11 +522,8 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         for _ in range(self.num_layers):
             self.gconvs.append(filter_args_create(BidirectionalEdgeLayer, kwargs))
 
-    def forward(self, data):
+    def forward(self, node_feature, edge_feature, edges_indices):
         probs = list()
-        node_feature = data['node'].x
-        edge_feature = data['node', 'to', 'node'].x
-        edges_indices = data['node', 'to', 'node'].edge_index
         
         for i in range(self.num_layers):
             gconv = self.gconvs[i]

@@ -13,3 +13,4 @@ from runners.trainer_point import BFeatSGGPointTrainer
 from runners.trainer_jjam_gcn import BFeatJjamTongTripletGCNTrainer
 from runners.trainer_full_scl import BFeatFullSCLTrainer
 from runners.trainer_geo_aux import BFeatGeoAuxTrainer
+from runners.trainer_geo_aux_mgat import BFeatGeoAuxMGATTrainer
