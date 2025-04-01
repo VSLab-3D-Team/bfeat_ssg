@@ -20,9 +20,9 @@ train:
   batch_size: 8
   workers: 8
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_geo_aux
+  wandb_project: bfeat_sg_geo_mgat
   none_ratio: 0.1
-  drop_out: 0.5
+  drop_out: 0.3
   verbose: true
   meter: average
   scheduler: 'cosine'
@@ -50,6 +50,7 @@ model:
   relation_type: "resnet"
   edge_attention: false
   gat_type: "bidirectional"
+  use_distance_mask: true
 
 optimizer:
   learning_rate: 0.0001

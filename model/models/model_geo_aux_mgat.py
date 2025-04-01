@@ -66,9 +66,10 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
                 dim_atten=self.m_config.dim_attn,
                 num_layers=self.m_config.num_graph_update,
                 num_heads=self.m_config.num_heads,
+                use_distance_mask=self.m_config.use_distance_mask,
                 aggr='max',
                 DROP_OUT_ATTEN=self.t_config.drop_out,
-                use_bn=False
+                use_bn=True
             )
         else:
             self.gat = BFeatVanillaGAT(
@@ -105,12 +106,17 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
         else:
             edge_feats = self.relation_encoder(edge_pts)
-        obj_center = descriptor[:, :3].clone()
-        if self.m_config.gat_type == "bidirectional":
-            obj_gnn_feats, edge_gnn_feats = self.gat(
+        
+        if self.m_config.gat_type == "bidirectional" and not self.m_config.use_distance_mask:
+            obj_gnn_feats, edge_gnn_feats, _ = self.gat(
                 obj_feats, edge_feats, edge_indices
             )
+        elif self.m_config.gat_type == "bidirectional" and self.m_config.use_distance_mask:
+            obj_gnn_feats, edge_gnn_feats, _ = self.gat(
+                obj_feats, edge_feats, edge_indices, descriptor
+            )
         else:
+            obj_center = descriptor[:, :3].clone()
             obj_gnn_feats, edge_gnn_feats = self.gat(
                 obj_feats, edge_feats, edge_indices, batch_ids, obj_center, attn_weight
             )

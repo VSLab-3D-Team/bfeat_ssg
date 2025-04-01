@@ -78,17 +78,17 @@ class BaseTrainer(ABC):
         self.meters = build_meters(self.t_config.meter)
         
         # Contrastive positive/negative pair sampler  
-        self.build_embedding_storage()
-        if self.t_config.sampler == "hybrid":
-            self.contrastive_sampler = ContrastiveHybridTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
-        elif self.t_config.sampler == "triplet":
-            self.contrastive_sampler = ContrastiveTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
-        elif self.t_config.sampler == "frequency":
-            self.contrastive_sampler = ContrastiveFreqWeightedSampler(self.embedding_vector_loader, self.none_emb, config, device)
-        elif self.t_config.sampler == "replay_buffer":
-            self.contrastive_sampler = ContrastiveReplayBufferSampler(self.embedding_vector_loader, self.none_emb, config,device)
-        else:
-            raise NotImplementedError
+        # self.build_embedding_storage()
+        # if self.t_config.sampler == "hybrid":
+        #     self.contrastive_sampler = ContrastiveHybridTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
+        # elif self.t_config.sampler == "triplet":
+        #     self.contrastive_sampler = ContrastiveTripletSampler(self.embedding_vector_loader, self.none_emb, config, device)
+        # elif self.t_config.sampler == "frequency":
+        #     self.contrastive_sampler = ContrastiveFreqWeightedSampler(self.embedding_vector_loader, self.none_emb, config, device)
+        # elif self.t_config.sampler == "replay_buffer":
+        #     self.contrastive_sampler = ContrastiveReplayBufferSampler(self.embedding_vector_loader, self.none_emb, config,device)
+        # else:
+        #     raise NotImplementedError
 
     @torch.no_grad()
     def crazy_negative_embedding(self, token_vecs: torch.Tensor):
