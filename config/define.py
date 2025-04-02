@@ -1,6 +1,6 @@
 import os
 
-SSG_DATA_PATH = "/media/michael/ssd1/SceneGraph/3DSSG"
+SSG_DATA_PATH = "/data2/local_datasets"
 SSG_PREPROCESS_PATH = "/media/michael/ssd1/SceneGraph/LWBFeat3DSG"
 OBJ_LABEL_PATH = f"{SSG_DATA_PATH}/3DSSG_subset/classes.txt"
 REL_LABEL_PATH = f"{SSG_DATA_PATH}/3DSSG_subset/relations.txt"
