@@ -45,6 +45,49 @@ class RelFeatMergeExtractor(nn.Module):
         
         edge_init_feats = self.merge_layer(m_ij).squeeze(1) # B X 512
         return edge_init_feats # think novel method
+    
+class RelFeatMergeExtractorWithFiLM(nn.Module):
+    def __init__(self, dim_obj_feats, dim_geo_feats, dim_out_feats, hidden_dim=128):
+        super(RelFeatMergeExtractorWithFiLM, self).__init__()
+        
+        self.obj_proj = nn.Linear(dim_obj_feats, dim_out_feats)
+        
+        self.geo_encoder = nn.Sequential(
+            nn.Linear(dim_geo_feats, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU()
+        )
+        
+        self.geo_proj = nn.Linear(dim_geo_feats, dim_out_feats)
+        
+        self.film_generator = nn.Linear(hidden_dim, dim_out_feats * 2)
+        
+        self.merge_layer = nn.Conv1d(in_channels=3, out_channels=1, kernel_size=5, stride=1, padding="same")
+    
+    def forward(self, x_i, x_j, geo_feats):
+        p_i = self.obj_proj(x_i)
+        p_j = self.obj_proj(x_j)
+        
+        g_ij = self.geo_proj(geo_feats)
+        
+        geo_enc = self.geo_encoder(geo_feats)
+        
+        film_params = self.film_generator(geo_enc)
+        gamma, beta = torch.chunk(film_params, 2, dim=1)
+        
+        p_i_mod = gamma * p_i + beta
+        p_j_mod = gamma * p_j + beta
+        
+        m_ij = torch.cat([
+            p_i_mod.unsqueeze(1), p_j_mod.unsqueeze(1), g_ij.unsqueeze(1)
+        ], dim=1)
+        
+        edge_init_feats = self.merge_layer(m_ij).squeeze(1)
+        
+        return edge_init_feats
 
 class RelFeatPointExtractor(nn.Module):
     def __init__(self, config, device, out_dims=512):
