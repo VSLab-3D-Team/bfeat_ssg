@@ -38,11 +38,12 @@ class BFeatGeoAuxNet(BaseNetwork):
                 self.m_config.dim_edge_feats,
                 num_layers=self.m_config.num_layers
             ).to(self.device)
-        elif self.m_config.relation_type == "1dconv":
-            self.relation_encoder = RelFeatMergeExtractor(
+        elif self.m_config.relation_type == "filmnet":
+            self.relation_encoder = RelFeatMergeExtractorWithFiLM(
                 self.m_config.dim_obj_feats,
                 self.m_config.dim_geo_feats,
-                self.m_config.dim_edge_feats
+                self.m_config.dim_edge_feats,
+                hidden_dim=256
             ).to(self.device)
         else:
             raise NotImplementedError
