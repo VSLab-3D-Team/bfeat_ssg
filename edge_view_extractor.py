@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import PIL.Image as Image
 import clip, torch, numpy as np
 
-DATA_DIR = "/media/michael/ssd1/SceneGraph"
+DATA_DIR = "/data2/local_datasets"
 MAX_NUM = 5
 switch_predicates = {
     "right": "on the rightside of",
@@ -34,7 +34,7 @@ def read_pointcloud(scan_id):
     """
     Reads a pointcloud from a file and returns points with instance label.
     """
-    plydata = trimesh.load(os.path.join(f'{DATA_DIR}/3DSSG/3RScan/data/3RScan', scan_id, 'labels.instances.annotated.v2.ply'), process=False)
+    plydata = trimesh.load(os.path.join(f'{DATA_DIR}/3RScan/data/3RScan', scan_id, 'labels.instances.annotated.v2.ply'), process=False)
     points = np.array(plydata.vertices)
     labels = np.array(plydata.metadata['ply_raw']['vertex']['data']['objectId'])
 
@@ -46,12 +46,12 @@ def read_json(split):
     """
     selected_scans = set()
     if split == 'train' :
-        selected_scans = selected_scans.union(read_txt_to_list(f'{DATA_DIR}/3DSSG/3DSSG_subset/train_scans.txt'))
-        with open(f"{DATA_DIR}/3DSSG/3DSSG_subset/relationships_train.json", "r") as read_file:
+        selected_scans = selected_scans.union(read_txt_to_list(f'{DATA_DIR}/3DSSG_subset/train_scans.txt'))
+        with open(f"{DATA_DIR}/3DSSG_subset/relationships_train.json", "r") as read_file:
             data = json.load(read_file)
     elif split == 'val':
-        selected_scans = selected_scans.union(read_txt_to_list(f'{DATA_DIR}/3DSSG/3DSSG_subset/validation_scans.txt'))
-        with open(f"{DATA_DIR}/3DSSG/3DSSG_subset/relationships_validation.json", "r") as read_file:
+        selected_scans = selected_scans.union(read_txt_to_list(f'{DATA_DIR}/3DSSG_subset/validation_scans.txt'))
+        with open(f"{DATA_DIR}/3DSSG_subset/relationships_validation.json", "r") as read_file:
             data = json.load(read_file)
     else:
         raise RuntimeError('unknown split type:',split)
@@ -107,7 +107,7 @@ def read_extrinsic(extrinsic_path):
     return pose
 
 def read_scan_info(scan_id, mode='rgb'):
-    scan_path = os.path.join(f"{DATA_DIR}/3DSSG/3RScan/data/3RScan", scan_id)
+    scan_path = os.path.join(f"{DATA_DIR}/3RScan/data/3RScan", scan_id)
     sequence_path = os.path.join(scan_path, "sequence")
     intrinsic_path = os.path.join(sequence_path, "_info.txt")
     intrinsic_info = read_intrinsic(intrinsic_path, mode='rgb')
@@ -265,7 +265,7 @@ if __name__ == '__main__':
         relationships = scene_data[i]['rel']
         # print(f'======= read image and extrinsic for {i} =========')
         image_list, extrinsic_list, intrinsic_info = read_scan_info(i)
-        save_path = f'{DATA_DIR}/3DSSG/3RScan/data/3RScan/{i}/edge_view'
+        save_path = f'{DATA_DIR}/3RScan/data/3RScan/{i}/edge_view'
         os.makedirs(save_path, exist_ok=True)
         # print(f'======= map pointcloud to image =========')
         map_pc_relations(
