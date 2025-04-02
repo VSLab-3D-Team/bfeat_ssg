@@ -50,7 +50,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         self.add_meters([
             "Train/Geo_Aux_Loss",
-            "Train/Edge_CLIP_Aux_Loss",
+            # "Train/Edge_CLIP_Aux_Loss",
         ])
         self.del_meters([
             "Train/Contrastive_Loss"
@@ -146,19 +146,21 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 # contrastive_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
                 
                 geo_aux_loss = F.l1_loss(pred_geo_desc, edge_desc)
-                edge_clip_aux_loss = self.cosine_loss(pred_edge_clip, edge_2d_feats)
+                # edge_clip_aux_loss = self.cosine_loss(pred_edge_clip, edge_2d_feats)
                 
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
+                lambda_g = self.t_config.lambda_geo
+                lambda_v = self.t_config.lambda_view
                 # lambda_c = self.t_config.lambda_con # 0.1
                 # + lambda_c * contrastive_loss \
                     
                 # Geo Aux: 0.3 or 1.0
                 t_loss = lambda_o * c_obj_loss \
                     + lambda_r * c_rel_loss \
-                    + 1.0 * geo_aux_loss \
-                    + edge_clip_aux_loss
+                    + lambda_g * geo_aux_loss # \
+                    # + lambda_v * edge_clip_aux_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -166,7 +168,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
                 # self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
                 self.meters['Train/Geo_Aux_Loss'].update(geo_aux_loss.detach().item()) 
-                self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
+                # self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),

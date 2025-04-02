@@ -7,6 +7,7 @@ from model.frontend.pointnet import PointNetEncoder
 class RelFeatNaiveExtractor(nn.Module):
     def __init__(self, input_dim, geo_dim, out_dim, num_layers=6):
         super(RelFeatNaiveExtractor, self).__init__()
+        self.sub_proj = nn.Linear(input_dim, 512)
         self.obj_proj = nn.Linear(input_dim, 512)
         self.geo_proj = nn.Linear(geo_dim, 512)
         self.merge_layer = nn.Conv1d(in_channels=3, out_channels=1, kernel_size=5, stride=1, padding="same")
@@ -17,7 +18,7 @@ class RelFeatNaiveExtractor(nn.Module):
 
     def forward(self, x_i: torch.Tensor, x_j: torch.Tensor, geo_feats: torch.Tensor):
         # All B X N_feat size
-        p_i, p_j, g_ij = self.obj_proj(x_i), self.obj_proj(x_j), self.geo_proj(geo_feats)
+        p_i, p_j, g_ij = self.sub_proj(x_i), self.obj_proj(x_j), self.geo_proj(geo_feats)
         m_ij = torch.cat([
             p_i.unsqueeze(1), p_j.unsqueeze(1), g_ij.unsqueeze(1)
         ], dim=1)
