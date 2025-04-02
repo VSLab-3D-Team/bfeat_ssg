@@ -25,6 +25,11 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
         self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
         self.point_encoder = self.point_encoder.to(self.device).eval()
+        # self.obj_proj = build_mlp([
+        #     self.m_config.dim_obj_feats, 
+        #     self.m_config.dim_obj_feats // 2, 
+        #     self.m_config.dim_obj_feats
+        # ], do_bn=True, on_last=True)
         
         self.index_get = Gen_Index(flow=self.m_config.flow)
         assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
@@ -99,6 +104,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         with torch.no_grad():
             _obj_feats, _, _ = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach() # B X N_feats
+        # obj_feats = self.obj_proj(obj_feats)
         
         if not self.m_config.relation_type == "pointnet":
             x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
