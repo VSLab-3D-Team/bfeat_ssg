@@ -71,7 +71,9 @@ class BaseTrainer(ABC):
         now = datetime.now()
         self.exp_name = f"{self.t_config.wandb_project}_{self.config.exp_desc}_{now.strftime('%Y-%m-%d_%H')}"
         self.__setup_checkpoint(self.exp_name)
-        wandb.init(project="BetterFeat_3DSSG_GAT", name=self.exp_name)
+        wandb.init(project="BetterFeat_3DSSG_GAT", 
+                   entity="kimh060612-kyung-hee-university",
+                   name=self.exp_name)
         self.wandb_log = {}
         
         # Average & Max Meter
