@@ -9,7 +9,7 @@ dataset:
   seed: 2025
 
 train:
-  ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
+  ckp_path: ./model_checkpoints/obj_encoder.pth
   name: GAT
   epoch: 1000
   log_interval: 5
