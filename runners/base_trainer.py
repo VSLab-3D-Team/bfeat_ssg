@@ -13,6 +13,16 @@ import matplotlib.pyplot as plt
 import clip
 from datetime import datetime
 import os
+import random
+
+def set_random_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print(seed)
 
 class BaseTrainer(ABC):
     def __init__(self, config, device, multi_view_ssl=False, geo_aux=False):
@@ -23,6 +33,7 @@ class BaseTrainer(ABC):
         self.d_config = config.dataset
         self.m_config = config.model
         self.opt_config = config.optimizer
+        set_random_seed(getattr(self.t_config, "seed", 42))
         if not multi_view_ssl and not geo_aux:
             self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
                 build_dataset_and_loader(

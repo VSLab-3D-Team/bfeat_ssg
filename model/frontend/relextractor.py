@@ -102,3 +102,21 @@ class RelFeatPointExtractor(nn.Module):
     def forward(self, rel_pts):
         rel_feats, _, _ = self.point_encoder(rel_pts)
         return rel_feats
+    
+class VLSAT3DEdgeEncoder(nn.Module):
+
+    def __init__(self, dim_geo_feats, dim_edge_feats):
+        super(VLSAT3DEdgeEncoder, self).__init__()
+        
+        self.geo_mlp = nn.Sequential(
+            nn.Linear(dim_geo_feats, 128),
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, dim_edge_feats)
+        )
+    
+    def forward(self, x_i=None, x_j=None, geo_feats=None):
+        edge_feats = self.geo_mlp(geo_feats)
+        
+        return edge_feats

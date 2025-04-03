@@ -51,6 +51,11 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
                 self.m_config.dim_edge_feats,
                 hidden_dim=256
             ).to(self.device)
+        elif self.m_config.relation_type == "vlsat":
+            self.relation_encoder = VLSAT3DEdgeEncoder(
+                dim_geo_feats=self.m_config.dim_geo_feats,
+                dim_edge_feats=self.m_config.dim_edge_feats
+            ).to(self.device)
         else:
             raise NotImplementedError
         
