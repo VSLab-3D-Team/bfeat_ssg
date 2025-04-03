@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List
-from dataset.dataloader import CustomDataLoader, collate_fn_bfeat, collate_fn_bfeat_mv, SSGImbalanceSampler
-from dataset import build_dataset, build_dataset_multi_view, build_dataset_and_loader
+from dataset import build_dataset_and_loader
 from utils.logger import build_meters, AverageMeter
 from utils.contrastive_utils import *
 from utils.eval_utils import *
@@ -23,6 +22,9 @@ class BaseTrainer(ABC):
         self.d_config = config.dataset
         self.m_config = config.model
         self.opt_config = config.optimizer
+        torch.manual_seed(self.t_config.seed)              
+        torch.cuda.manual_seed(self.t_config.seed)
+        
         if not multi_view_ssl and not geo_aux:
             self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
                 build_dataset_and_loader(

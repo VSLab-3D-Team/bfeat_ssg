@@ -1,12 +1,10 @@
 from utils.eval_utils import *
 from utils.logger import Progbar
-from utils.model_utils import rotation_matrix
 from runners.base_trainer import BaseTrainer
+from utils.model_utils import TFIDFMaskLayer, TFIDFTripletWeight
 from model.frontend.relextractor import *
-from model.backend.classifier import consine_classification_obj
-from model.models.model_rel_only import BFeatRelOnlyNet, BFeatGNNRelOnlyNet
-from model.backend.classifier import RelCosineClassifier
-from model.loss import MultiLabelInfoNCELoss
+from model.models.model_caux_mgat import BFeatGeoClsAuxMGATNet
+from model.loss import MultiLabelInfoNCELoss, WeightedFocalLoss
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -14,21 +12,18 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import wandb
 
-## TODO: Relationship Feature Extractor Contrastive learning only
-class BFeatRelOnlyContrasTrainer(BaseTrainer):
+class BFeatGeoSizeAuxMGATTrainer(BaseTrainer):
     def __init__(self, config, device):
-        super().__init__(config, device)
+        super().__init__(config, device, geo_aux=True)
         
-        self.m_config = config.model
         # Model Definitions
-        self.build_text_classifier()
-        self.model = BFeatGNNRelOnlyNet(self.config, device).to(device)
-        ## Contrastive loss only for Relationship Feature extractor
-        self.rel_classifier = RelCosineClassifier(
-            self.rel_label_list, 
-            self.obj_label_list, 
-            self.device, d_feats=self.m_config.dim_edge_feats
-        )
+        self.m_config = config.model
+        self.model = BFeatGeoClsAuxMGATNet(
+            self.config, 
+            self.num_obj_class, 
+            self.num_rel_class, 
+            device
+        ).to(device)
         
         # Optimizer & Scheduler
         self.optimizer = optim.Adam(
@@ -47,20 +42,53 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
         else:
             raise NotImplementedError
         # Loss function 
+        self.f_criterion = WeightedFocalLoss()
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
+        self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
+        self.w_edge = TFIDFTripletWeight(self.num_obj_class, self.num_rel_class, self.device)
         
-        # Remove trace meters
+        self.add_meters([
+            "Train/Geo_Aux_Loss",
+            "Train/Edge_CLIP_Aux_Loss",
+            "Train/Size_Aux_Loss"
+        ])
         self.del_meters([
-            "Train/Obj_Cls_Loss",
-            "Train/Contrastive_Loss",
-            "Train/Rel_Cls_Loss"
+            "Train/Contrastive_Loss"
         ])
         
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
             self.resume_from_checkpoint(self.config.resume)
     
+    def cosine_loss(self, A, B, t=1):
+        return torch.clamp(t - F.cosine_similarity(A, B, dim=-1), min=0).mean()
+    
+    def __dynamic_rel_weight(self, gt_rel_cls, ignore_none_rel=True):
+        batch_mean = torch.sum(gt_rel_cls, dim=(0))
+        zeros = (gt_rel_cls.sum(-1) ==0).sum().unsqueeze(0)
+        batch_mean = torch.cat([zeros,batch_mean],dim=0)
+        weight = torch.abs(1.0 / (torch.log(batch_mean+1)+1)) # +1 to prevent 1 /log(1) = inf                
+        if self.t_config.none_ratio == 0:
+            weight[0] = 0
+            weight *= 1e-2 # reduce the weight from ScanNet
+            # print('set weight of none to 0')
+        else:
+            weight[0] *= self.t_config.none_ratio
+
+        weight[torch.where(weight==0)] = weight[0].clone() if not ignore_none_rel else 0
+        weight = weight[1:]                
+        return weight
+    
+    def __dynamic_obj_weight(self, gt_obj_cls, alpha=0.5):
+        num_classes = len(self.obj_label_list)
+        class_counts = torch.bincount(gt_obj_cls, minlength=num_classes).float()
+        class_counts = class_counts + 1e-6  
+        weights = 1.0 / (class_counts ** alpha)
+        weights = weights / weights.sum()
+        return weights
+    
     def train(self):
+        
         self.model = self.model.train()
         n_iters = len(self.t_dataloader)
         val_metric = -987654321
@@ -68,7 +96,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
         # Training Loop
         for e in range(self.t_config.epoch):
             self.wandb_log = {}
-            progbar = Progbar(n_iters, width=20, stateful_metrics=['Misc/epo', 'Misc/it'])
+            progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/epo', 'Misc/it'])
             self.model = self.model.train()
             loader = iter(self.t_dataloader)
             
@@ -76,9 +104,11 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                 obj_pts, 
                 rel_pts, 
                 descriptor,
+                edge_2d_feats,
                 gt_rel_label,
                 gt_obj_label,
                 edge_indices,
+                edge_feat_mask,
                 batch_ids
             ) in enumerate(loader):
 
@@ -86,36 +116,74 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                     obj_pts, 
                     rel_pts, 
                     descriptor,
+                    edge_2d_feats,
                     gt_rel_label,
                     gt_obj_label,
                     edge_indices,
+                    edge_feat_mask,
                     batch_ids
-                ) = self.to_device(obj_pts, rel_pts, descriptor, gt_rel_label, gt_obj_label, edge_indices, batch_ids)
+                ) = self.to_device(
+                    obj_pts, rel_pts, descriptor, edge_2d_feats, 
+                    gt_rel_label, gt_obj_label, edge_indices, 
+                    edge_feat_mask, batch_ids
+                )
                 
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+                rel_pts = rel_pts.transpose(2, 1).contiguous()
                 
-                pos_pair, neg_pair, rel_indices = self.contrastive_sampler.sample(gt_obj_label, gt_rel_label, edge_indices)
-                t_loss = self.c_criterion(edge_feats, pos_pair, neg_pair, rel_indices)
+                # TF-IDF Attention Mask Generation
+                attn_tfidf_weight = None # self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
+                
+                _, obj_pred, rel_pred, pred_edge_clip, pred_geo_desc, pred_size, edge_desc, size_desc = \
+                    self.model(
+                        obj_pts, rel_pts, edge_indices.t().contiguous(), 
+                        descriptor, edge_feat_mask, batch_ids, 
+                        attn_tfidf_weight
+                    )
+                rel_weight = self.__dynamic_rel_weight(gt_rel_label)
+                obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
+                c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label, weight=obj_weight)
+                c_rel_loss = F.binary_cross_entropy(rel_pred, gt_rel_label, weight=rel_weight)
+                
+                geo_aux_loss = F.l1_loss(pred_geo_desc, edge_desc)
+                size_aux_loss = F.binary_cross_entropy_with_logits(pred_size, size_desc)
+                edge_clip_aux_loss = self.cosine_loss(pred_edge_clip, edge_2d_feats)
                 
                 # TODO: determine coefficient for each loss
+                lambda_o = self.t_config.lambda_obj # 0.1
+                lambda_r = self.t_config.lambda_rel
+                lambda_g = self.t_config.lambda_geo
+                lambda_v = self.t_config.lambda_view
+                lambda_s = self.t_config.lambda_size
+                    
+                # Geo Aux: 0.3 or 1.0
+                t_loss = lambda_o * c_obj_loss \
+                    + lambda_r * c_rel_loss \
+                    + lambda_g * geo_aux_loss \
+                    + lambda_v * edge_clip_aux_loss \
+                    + lambda_s * size_aux_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
+                self.meters['Train/Obj_Cls_Loss'].update(c_obj_loss.detach().item())
+                self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
+                self.meters['Train/Geo_Aux_Loss'].update(geo_aux_loss.detach().item()) 
+                self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
+                self.meters['Train/Size_Aux_Loss'].update(size_aux_loss.detach().item())
                 t_log = [
+                    ("train/rel_loss", c_rel_loss.detach().item()),
+                    ("train/obj_loss", c_obj_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
                     ("Misc/epo", int(e)),
                     ("Misc/it", int(idx)),
                     ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
                 if e % self.t_config.log_interval == 0:
-                    obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats)
-                    rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
                     logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                     t_log += logs
                 progbar.add(1, values=t_log)
-            
+                
             self.lr_scheduler.step()
             if e % self.t_config.evaluation_interval == 0:
                 mRecall_50 = self.evaluate_validation()
@@ -131,7 +199,7 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
     
     def evaluate_validation(self):
         n_iters = len(self.v_dataloader)
-        progbar = Progbar(n_iters, width=20, stateful_metrics=['Misc/it'])
+        progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/it'])
         loader = iter(self.v_dataloader)
         
         topk_obj_list, topk_rel_list, topk_triplet_list, cls_matrix_list = np.array([]), np.array([]), np.array([]), []
@@ -141,32 +209,39 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
         
         with torch.no_grad():
             self.model = self.model.eval()
-            for i, (
+            for idx, (
                 obj_pts, 
                 rel_pts, 
                 descriptor,
+                edge_2d_feats,
                 gt_rel_label,
                 gt_obj_label,
                 edge_indices,
+                edge_feat_mask,
                 batch_ids
             ) in enumerate(loader):
+
                 (
                     obj_pts, 
                     rel_pts, 
                     descriptor,
+                    edge_2d_feats,
                     gt_rel_label,
                     gt_obj_label,
                     edge_indices,
+                    edge_feat_mask,
                     batch_ids
-                ) = self.to_device(obj_pts, rel_pts, descriptor, gt_rel_label, gt_obj_label, edge_indices, batch_ids)
+                ) = self.to_device(
+                    obj_pts, rel_pts, descriptor, edge_2d_feats, 
+                    gt_rel_label, gt_obj_label, edge_indices, 
+                    edge_feat_mask, batch_ids
+                )
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
-                edge_feats, obj_feats = self.model(obj_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
                 
-                obj_pred = consine_classification_obj(self.text_gt_matrix, obj_feats)
-                rel_pred = self.rel_classifier(edge_feats, obj_pred, edge_indices)
-                
+                _, obj_pred, rel_pred, _, _, _, _, _ = \
+                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids) # attn_tfidf_weight
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
@@ -177,8 +252,8 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                         topk=101, use_clip=True, obj_topk=top_k_obj
                     )
                 
-                sgcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='triplet')
-                predcls_recall=evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='rels')
+                sgcls_recall = evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='triplet')
+                predcls_recall = evaluate_triplet_recallk(obj_pred.detach(), rel_pred.detach(), gt_edges, edge_indices, self.d_config.multi_rel, [20,50,100], 100, use_clip=True, evaluate='rels')
                 
                 sgcls_recall_list.append(sgcls_recall)
                 predcls_recall_list.append(predcls_recall)
@@ -250,6 +325,8 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
                 ("Predcls@50", predcls_recall[1]),
                 ("Predcls@100", predcls_recall[2]),
             ]
+            progbar.add(1, values=logs)
+            
             self.wandb_log["Validation/Acc@1/obj_cls"] = obj_acc_1
             self.wandb_log["Validation/Acc@5/obj_cls"] = obj_acc_5
             self.wandb_log["Validation/Acc@10/obj_cls"] = obj_acc_10
@@ -269,7 +346,14 @@ class BFeatRelOnlyContrasTrainer(BaseTrainer):
             self.wandb_log["Validation/SGcls@100"] = sgcls_recall[2]    
             self.wandb_log["Validation/Predcls@20"] = predcls_recall[0]
             self.wandb_log["Validation/Predcls@50"] = predcls_recall[1]
-            self.wandb_log["Validation/Predcls@100"] = predcls_recall[2]        
+            self.wandb_log["Validation/Predcls@100"] = predcls_recall[2]       
         return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
     
-    
+
+# print("Obj pts Shape:", obj_pts.shape)
+# print("Rel pts Shape:", rel_pts.shape)
+# print("Obj desc. Shape:", descriptor.shape)
+# print("Rel label Shape:", gt_rel_label.shape)
+# print("Obj label Shape:", gt_obj_label.shape)
+# print("Edge index Shape:", edge_indices.shape)
+# print("Batch idx Shape:", batch_ids.shape)

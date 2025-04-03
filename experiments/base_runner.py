@@ -1,7 +1,7 @@
 from abc import abstractmethod, ABC
 from typing import List
-from dataset.dataloader import CustomDataLoader, collate_fn_bfeat
-from dataset import build_dataset
+from dataset.dataloader import CustomDataLoader, collate_fn_bfeat, collate_fn_geo_aux
+from dataset import build_dataset, build_dataset_edge_view
 from utils.logger import build_meters
 import torch
 import torch.nn as nn
@@ -18,7 +18,7 @@ class BaseExperimentRunner(ABC):
         self.d_config = config.dataset
         self.m_config = config.model
         self.opt_config = config.optimizer
-        self.v_dataset = build_dataset(self.d_config, split="validation_scans", device=device)
+        self.v_dataset = build_dataset_edge_view(self.d_config, split="validation_scans", device=device)
         self.v_dataloader = CustomDataLoader(
             self.d_config, 
             self.v_dataset, 
@@ -26,7 +26,7 @@ class BaseExperimentRunner(ABC):
             num_workers=self.t_config.workers,
             shuffle=False,
             drop_last=True,
-            collate_fn=collate_fn_bfeat
+            collate_fn=collate_fn_geo_aux
         )
         print("length of validation data:", len(self.v_dataset))
         

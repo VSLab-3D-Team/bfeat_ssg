@@ -3,9 +3,8 @@ from utils.logger import Progbar
 from runners.base_trainer import BaseTrainer
 from utils.model_utils import TFIDFMaskLayer, TFIDFTripletWeight
 from model.frontend.relextractor import *
-from model.models.model_geo_aux import BFeatGeoAuxNet
 from model.models.model_geo_aux_mgat import BFeatGeoAuxMGATNet
-from model.loss import MultiLabelInfoNCELoss, ContrastiveSafeLoss, WeightedFocalLoss
+from model.loss import MultiLabelInfoNCELoss, WeightedFocalLoss
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -153,8 +152,6 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 lambda_r = self.t_config.lambda_rel
                 lambda_g = self.t_config.lambda_geo
                 lambda_v = self.t_config.lambda_view
-                # lambda_c = self.t_config.lambda_con # 0.1
-                # + lambda_c * contrastive_loss \
                     
                 # Geo Aux: 0.3 or 1.0
                 t_loss = lambda_o * c_obj_loss \
@@ -166,13 +163,11 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
                 self.meters['Train/Obj_Cls_Loss'].update(c_obj_loss.detach().item())
                 self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
-                # self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
                 self.meters['Train/Geo_Aux_Loss'].update(geo_aux_loss.detach().item()) 
                 self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
-                    # ("train/contrastive_loss", contrastive_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
                     ("Misc/epo", int(e)),
                     ("Misc/it", int(idx)),

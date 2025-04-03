@@ -9,9 +9,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class BFeatGeoAuxMGATNet(BaseNetwork):
+class BFeatGeoClsAuxMGATNet(BaseNetwork):
     def __init__(self, config, n_obj_cls, n_rel_cls, device):
-        super(BFeatGeoAuxMGATNet, self).__init__()
+        super(BFeatGeoClsAuxMGATNet, self).__init__()
         self.config = config
         self.t_config = config.train
         self.m_config = config.model
@@ -33,11 +33,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         
         self.index_get = Gen_Index(flow=self.m_config.flow)
         assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
-        if self.m_config.relation_type == "pointnet":
-            self.relation_encoder = RelFeatPointExtractor(
-                config, device
-            )
-        elif self.m_config.relation_type == "resnet":
+        if self.m_config.relation_type == "resnet":
             self.relation_encoder = RelFeatNaiveExtractor(
                 self.m_config.dim_obj_feats,
                 self.m_config.dim_geo_feats,
@@ -51,14 +47,6 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
                 self.m_config.dim_edge_feats,
                 hidden_dim=256
             ).to(self.device)
-        elif self.m_config.relation_type == "filmresnet":
-            self.relation_encoder = RelFeatResNetWithFiLM(
-                self.m_config.dim_obj_feats,
-                self.m_config.dim_geo_feats,
-                self.m_config.dim_edge_feats,
-                num_layers=self.m_config.num_layers,
-                hidden_dim=256
-            ).to(self.device)
         else:
             raise NotImplementedError
         
@@ -70,7 +58,12 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         self.proj_geo_desc = build_mlp([
             self.m_config.dim_edge_feats, 
             self.m_config.dim_edge_feats // 4, 
-            11
+            9
+        ], do_bn=True, on_last=True)
+        self.proj_size_cls = build_mlp([
+            self.m_config.dim_edge_feats, 
+            self.m_config.dim_edge_feats // 4, 
+            1
         ], do_bn=True, on_last=True)
         
         if self.m_config.gat_type == "bidirectional":
@@ -110,7 +103,11 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         
         self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
         self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
-        
+    
+    def __generate_ssl_descriptors(self, geo_i, geo_j):
+        edge_geo_desc = geo_i - geo_j
+        size_desc = (geo_i[:, 9:10] > geo_j[:, 9:10]).float()
+        return edge_geo_desc[:, :9], size_desc
         
     def forward(
         self, 
@@ -127,12 +124,9 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         obj_feats = _obj_feats.clone().detach() # B X N_feats
         # obj_feats = self.obj_proj(obj_feats)
         
-        if not self.m_config.relation_type == "pointnet":
-            x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
-            geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-            edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
-        else:
-            edge_feats = self.relation_encoder(edge_pts)
+        x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
+        geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
+        edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
         
         if self.m_config.gat_type == "bidirectional" and not self.m_config.use_distance_mask:
             obj_gnn_feats, edge_gnn_feats, _ = self.gat(
@@ -156,15 +150,22 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         obj_pred = self.obj_classifier(obj_gnn_feats)
         rel_pred = self.rel_classifier(edge_gnn_feats)
         
-        pred_edge_clip, pred_geo_desc = \
-            self.proj_clip_edge(edge_feats[edge_feat_mask, ...]), self.proj_geo_desc(edge_feats)
+        pred_edge_clip, pred_geo_desc, pred_size = \
+            self.proj_clip_edge(edge_feats[edge_feat_mask, ...]), \
+            self.proj_geo_desc(edge_feats), \
+            self.proj_size_cls(edge_feats)
+        
+        edge_geo_desc, size_desc = self.__generate_ssl_descriptors(geo_i_feats, geo_j_feats)
         
         return edge_feats, \
             obj_pred, \
             rel_pred, \
             pred_edge_clip, \
             pred_geo_desc, \
-            geo_i_feats - geo_j_feats
+            pred_size, \
+            edge_geo_desc, \
+            size_desc
+            
         
         
         

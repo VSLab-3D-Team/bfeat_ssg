@@ -1,5 +1,6 @@
 from model.models.model_vanilla import BFeatVanillaNet
-from model.models.model_direct_gnn import BFeatDirectGNNNet
+from model.models.model_geo_aux_mgat import BFeatGeoAuxMGATNet
+from model.models.model_geo_aux import BFeatGeoAuxNet
 from experiments.base_runner import BaseExperimentRunner
 from utils.eval_utils import *
 from utils.logger import Progbar
@@ -22,8 +23,15 @@ class EntireExperimentRunners(BaseExperimentRunner):
                 self.num_rel_class,
                 device
             )
-        elif model_name == "direct_gnn":
-            self.model = BFeatDirectGNNNet(
+        elif model_name == "geo_aux":
+            self.model = BFeatGeoAuxNet(
+                config,
+                self.num_obj_class,
+                self.num_rel_class,
+                device
+            )
+        elif model_name == "geo_mgat":
+            self.model = BFeatGeoAuxMGATNet(
                 config,
                 self.num_obj_class,
                 self.num_rel_class,
@@ -48,30 +56,40 @@ class EntireExperimentRunners(BaseExperimentRunner):
         sgcls_recall_list_wo, predcls_recall_list_wo, sgcls_recall_list_w, predcls_recall_list_w, sgcls_mean_recall_list_w, predcls_mean_recall_list_w  = [],[],[],[],[],[]
         logs = []
         
-        self.model = self.model.eval()
-        for i, (
+        self.model = self.model.eval().to(self.device)
+        for idx, (
             obj_pts, 
             rel_pts, 
             descriptor,
+            edge_2d_feats,
             gt_rel_label,
             gt_obj_label,
             edge_indices,
+            edge_feat_mask,
             batch_ids
         ) in enumerate(loader):
+
             (
                 obj_pts, 
                 rel_pts, 
                 descriptor,
+                edge_2d_feats,
                 gt_rel_label,
                 gt_obj_label,
                 edge_indices,
+                edge_feat_mask,
                 batch_ids
-            ) = self.to_device(obj_pts, rel_pts, descriptor, gt_rel_label, gt_obj_label, edge_indices, batch_ids)
-            
+            ) = self.to_device(
+                obj_pts, rel_pts, descriptor, edge_2d_feats, 
+                gt_rel_label, gt_obj_label, edge_indices, 
+                edge_feat_mask, batch_ids
+            )
+                
             obj_pts = obj_pts.transpose(2, 1).contiguous()
             rel_pts = rel_pts.transpose(2, 1).contiguous()
             
-            _, obj_pred, rel_pred = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, batch_ids)
+            _, obj_pred, rel_pred, _, _, _ = \
+                self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids)
             top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
             gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
             top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6, confidence_threshold=0.5)

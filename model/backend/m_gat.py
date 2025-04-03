@@ -1,8 +1,8 @@
 import math
 import importlib
 import torch
-from utils.model_utils import build_mlp, Gen_Index, Aggre_Index, MLP
-from model.models.baseline import BaseNetwork
+from utils.model_utils import build_mlp, MLP
+from model.backend.attention import MultiHeadAttention
 import inspect
 from collections import OrderedDict
 import os
@@ -556,6 +556,125 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
             node_positions = descriptor[:, :3]
         
         for i in range(self.num_layers):
+            gconv = self.gconvs[i]
+            node_feature, edge_feature, prob = gconv(
+                node_feature, edge_feature, edges_indices, node_positions
+            )
+
+            if i < (self.num_layers-1) or self.num_layers == 1:
+                node_feature = torch.nn.functional.relu(node_feature)
+                edge_feature = torch.nn.functional.relu(edge_feature)
+
+                if self.drop_out:
+                    node_feature = self.drop_out(node_feature)
+                    edge_feature = self.drop_out(edge_feature)
+
+            if prob is not None:
+                probs.append(prob.cpu().detach())
+            else:
+                probs.append(None)
+                
+        return node_feature, edge_feature, probs
+    
+class BidirectionalEdgeGraphObjAttnNetwork(torch.nn.Module):
+    
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.num_layers = kwargs['num_layers']
+        self.use_distance_mask = kwargs.get('use_distance_mask', True)
+
+        self.gconvs = torch.nn.ModuleList()
+        self.drop_out = None
+        if 'DROP_OUT_ATTEN' in kwargs:
+            self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
+
+        dim_node = kwargs["dim_node"]
+        num_heads = kwargs["num_heads"]
+        self.num_heads = num_heads
+        self.self_attn = nn.ModuleList(
+            MultiHeadAttention(d_model=dim_node, d_k=dim_node // num_heads, d_v=dim_node // num_heads, h=num_heads) 
+            for _ in range(self.num_layers)
+        )
+        self.self_attn_fc = nn.Sequential(  # 11 32 32 4(head)
+            nn.Linear(4, 32),  # xyz, dist
+            nn.ReLU(),
+            nn.LayerNorm(32),
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.LayerNorm(32),
+            nn.Linear(32, num_heads)
+        )
+        
+        for _ in range(self.num_layers):
+            self.gconvs.append(filter_args_create(BidirectionalEdgeLayer, kwargs))
+
+    def forward(
+        self, 
+        node_feature, 
+        edge_feature, 
+        edges_indices, 
+        descriptor=None, 
+        batch_ids=None, 
+        obj_center=None
+    ):
+        probs = list()
+        node_feature = node_feature
+        edge_feature = edge_feature
+        edges_indices = edges_indices
+        
+        node_positions = None
+        if self.use_distance_mask and not descriptor is None:
+            node_positions = descriptor[:, :3]
+        
+        # compute weight for obj
+        if obj_center is not None:
+            # get attention weight for object
+            batch_size = batch_ids.max().item() + 1
+            N_K = node_feature.shape[0]
+            N_R = edge_feature.shape[0]
+            obj_mask = torch.zeros(1, 1, N_K, N_K).cuda()
+            rel_mask = torch.zeros(1, 1, N_R, N_R).cuda()
+            obj_distance_weight = torch.zeros(1, self.num_heads, N_K, N_K).cuda()
+            count = 0
+            count_rel = 0
+
+            for i in range(batch_size):
+
+                idx_i = torch.where(batch_ids == i)[0]
+                L = len(idx_i)
+                obj_mask[:, :, count:count + L, count:count + L] = 1
+                rel_mask[:, :, count_rel:count_rel + L * (L - 1), count_rel:count_rel + L * (L - 1)] = 1
+                
+                center_A = obj_center[None, idx_i, :].clone().detach().repeat(L, 1, 1)
+                center_B = obj_center[idx_i, None, :].clone().detach().repeat(1, L, 1)
+                center_dist = (center_A - center_B)
+                dist = center_dist.pow(2)
+                dist = torch.sqrt(torch.sum(dist, dim=-1))[:, :, None]
+                weights = torch.cat([center_dist, dist], dim=-1).unsqueeze(0)  # 1 N N 4
+                dist_weights = self.self_attn_fc(weights).permute(0,3,1,2)  # 1 num_heads N N
+                
+                attention_matrix_way = 'add'
+                obj_distance_weight[:, :, count:count + L, count:count + L] = dist_weights
+
+                count += L
+                count_rel += L * (L - 1)
+            # attn_weight = attn_weight.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            # obj_distance_weight *= attn_weight
+        else:
+            obj_mask = None
+            obj_distance = None
+            rel_mask = None
+            attention_matrix_way = 'mul'
+        
+        for i in range(self.num_layers):
+            node_feature = node_feature.unsqueeze(0)
+            node_feature = self.self_attn[i](
+                node_feature, node_feature, node_feature, 
+                attention_weights=obj_distance_weight, way=attention_matrix_way, attention_mask=obj_mask, 
+                use_knn=False
+            )
+            node_feature = node_feature.squeeze(0)
+            
             gconv = self.gconvs[i]
             node_feature, edge_feature, prob = gconv(
                 node_feature, edge_feature, edges_indices, node_positions
