@@ -361,7 +361,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.meters['Train/Geo_Aux_Loss'].update(geo_aux_loss.detach().item()) 
                 self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
                 self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
-                self.meters['Train/Edge_Loss'].update(edge_text_loss.detach().item())
+                self.meters['Train/Edge_Text_Loss'].update(edge_text_loss.detach().item())
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
