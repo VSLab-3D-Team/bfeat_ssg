@@ -30,7 +30,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         #     self.m_config.dim_obj_feats // 2, 
         #     self.m_config.dim_obj_feats
         # ], do_bn=True, on_last=True)
-        
+
         self.index_get = Gen_Index(flow=self.m_config.flow)
         assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
         if self.m_config.relation_type == "pointnet":
@@ -43,6 +43,14 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
                 self.m_config.dim_geo_feats,
                 self.m_config.dim_edge_feats,
                 num_layers=self.m_config.num_layers
+            ).to(self.device)
+        elif self.m_config.relation_type == "masking":
+            self.relation_encoder = MaskingExtractor(
+                self.m_config.dim_obj_feats,
+                self.m_config.dim_geo_feats,
+                self.m_config.dim_edge_feats,
+                num_layers=self.m_config.num_layers,
+                mask_ratio=0.3
             ).to(self.device)
         elif self.m_config.relation_type == "filmnet":
             self.relation_encoder = RelFeatMergeExtractorWithFiLM(

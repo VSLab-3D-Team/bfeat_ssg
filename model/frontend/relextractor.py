@@ -120,3 +120,49 @@ class VLSAT3DEdgeEncoder(nn.Module):
         edge_feats = self.geo_mlp(geo_feats)
         
         return edge_feats
+    
+class MaskingExtractor(nn.Module):
+    def __init__(self, input_dim, geo_dim, out_dim, num_layers=6, mask_ratio=0.3):
+        super(MaskingExtractor, self).__init__()
+        self.obj_proj = nn.Linear(input_dim, 512)
+        self.geo_proj = nn.Linear(geo_dim, 512)
+        self.merge_layer = nn.Conv1d(in_channels=3, out_channels=1, kernel_size=5, stride=1, padding="same")
+        
+        self.res_blocks = nn.Sequential(*[ResidualBlock(512) for _ in range(num_layers)])
+        self.fc_out = nn.Linear(512, out_dim)
+        
+        self.mask_ratio = mask_ratio
+        self.training_mode = True
+        
+    def set_inference_mode(self):
+        self.training_mode = False
+        
+    def set_training_mode(self):
+        self.training_mode = True
+        
+    def apply_random_mask(self, x):
+        if not self.training_mode:
+            return x
+            
+        batch_size, feat_dim = x.shape
+        mask = torch.ones_like(x)
+        
+        for i in range(batch_size):
+            num_masked = int(feat_dim * self.mask_ratio)
+            mask_indices = torch.randperm(feat_dim)[:num_masked]
+            mask[i, mask_indices] = 0
+            
+        return x * mask
+
+    def forward(self, x_i: torch.Tensor, x_j: torch.Tensor, geo_feats: torch.Tensor):
+        x_i_masked = self.apply_random_mask(x_i)
+        x_j_masked = self.apply_random_mask(x_j)
+        
+        p_i, p_j, g_ij = self.obj_proj(x_i_masked), self.obj_proj(x_j_masked), self.geo_proj(geo_feats)
+        m_ij = torch.cat([
+            p_i.unsqueeze(1), p_j.unsqueeze(1), g_ij.unsqueeze(1)
+        ], dim=1)
+        
+        e_ij = self.merge_layer(m_ij).squeeze(1)
+        r_ij = self.res_blocks(e_ij)
+        return self.fc_out(r_ij)
