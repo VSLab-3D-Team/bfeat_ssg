@@ -17,7 +17,7 @@ train:
   log_interval: 5
   evaluation_interval: 5
   save_interval: 10
-  batch_size: 16
+  batch_size: 8
   workers: 8
   wandb_path: ./wandb
   wandb_project: Geo_MGAT
@@ -34,6 +34,7 @@ train:
   lambda_rel: 1.0
   lambda_geo: 1.0
   lambda_view: 1.0
+  lambda_triplet: 1.0
   oversampling: false
   seed: 2828
 

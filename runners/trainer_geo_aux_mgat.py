@@ -8,10 +8,50 @@ from model.models.model_geo_aux_mgat import BFeatGeoAuxMGATNet
 from model.loss import MultiLabelInfoNCELoss, ContrastiveSafeLoss, WeightedFocalLoss
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import wandb
+
+class CLIPTextEncoder(nn.Module):
+    def __init__(self, clip_model_name="ViT-B/32", device="cuda"):
+        super().__init__()
+        try:
+            import clip
+            self.model, _ = clip.load(clip_model_name, device=device)
+            self.text_encoder = self.model.encode_text
+            for param in self.parameters():
+                param.requires_grad = False
+            self.clip_available = True
+        except Exception as e:
+            print(f"CLIP initialization failed: {e}")
+            self.clip_available = False
+    
+    def forward(self, text):
+        if not hasattr(self, 'clip_available') or not self.clip_available:
+            return torch.ones(len(text), 512, device=next(self.parameters()).device)
+        
+        try:
+            import clip
+            text_tokens = clip.tokenize(text).to(next(self.parameters()).device)
+            return self.text_encoder(text_tokens)
+        except Exception as e:
+            print(f"CLIP inference failed: {e}")
+            return torch.ones(len(text), 512, device=next(self.parameters()).device)
+
+class TripletProjector(nn.Module):
+    def __init__(self, node_dim, edge_dim, output_dim=512):
+        super().__init__()
+        self.proj = nn.Sequential(
+            nn.Linear(node_dim * 2 + edge_dim, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, output_dim)
+        )
+    
+    def forward(self, subj_feat, obj_feat, rel_feat):
+        combined = torch.cat([subj_feat, rel_feat, obj_feat], dim=1)
+        return self.proj(combined)
 
 class BFeatGeoAuxMGATTrainer(BaseTrainer):
     def __init__(self, config, device):
@@ -48,6 +88,27 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
         self.w_edge = TFIDFTripletWeight(self.num_obj_class, self.num_rel_class, self.device)
         
+        try:
+            self.clip_text_encoder = CLIPTextEncoder(device=device).to(device)
+            
+            node_dim = self.m_config.dim_obj_feats
+            edge_dim = self.m_config.dim_edge_feats
+            
+            self.triplet_projector = TripletProjector(node_dim, edge_dim).to(device)
+            
+            self._text_embeddings_cache = {}
+            
+            self.lambda_triplet = getattr(self.t_config, 'lambda_triplet', 1.0)
+            
+            self.use_triplet_loss = True
+            print(f"Triplet loss initialization success. (Weight: {self.lambda_triplet})")
+            
+            self.add_meters(["Train/Triplet_Loss"])
+            
+        except Exception as e:
+            print(f"Triplet loss initialization failed: {e}")
+            self.use_triplet_loss = False
+        
         self.add_meters([
             "Train/Geo_Aux_Loss",
             "Train/Edge_CLIP_Aux_Loss",
@@ -59,6 +120,22 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
             self.resume_from_checkpoint(self.config.resume)
+    
+    def _get_text_embedding(self, text_template, fill_values):
+        if not hasattr(self, 'use_triplet_loss') or not self.use_triplet_loss:
+            return torch.ones(1, 512, device=self.device)
+            
+        text = text_template.format(**fill_values)
+        
+        if text in self._text_embeddings_cache:
+            return self._text_embeddings_cache[text]
+        
+        with torch.no_grad():
+            embedding = self.clip_text_encoder([text])
+            embedding = F.normalize(embedding, p=2, dim=1)
+            self._text_embeddings_cache[text] = embedding
+            
+        return embedding
     
     def cosine_loss(self, A, B, t=1):
         return torch.clamp(t - F.cosine_similarity(A, B, dim=-1), min=0).mean()
@@ -135,7 +212,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 # TF-IDF Attention Mask Generation
                 attn_tfidf_weight = None # self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
                 
-                _, obj_pred, rel_pred, pred_edge_clip, pred_geo_desc, edge_desc = \
+                edge_feats, obj_pred, rel_pred, pred_edge_clip, pred_geo_desc, edge_desc = \
                     self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids, attn_tfidf_weight)
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
@@ -148,11 +225,72 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 geo_aux_loss = F.l1_loss(pred_geo_desc, edge_desc)
                 edge_clip_aux_loss = self.cosine_loss(pred_edge_clip, edge_2d_feats)
                 
+                triplet_loss = torch.tensor(0.0, device=self.device)
+                if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
+                    try:
+                        with torch.no_grad():
+                            _obj_feats, _, _ = self.model.point_encoder(obj_pts)
+                        node_features = _obj_feats.clone().detach()
+                        
+                        obj_pred_softmax = F.softmax(obj_pred, dim=1)
+                        
+                        batch_size = min(128, edge_indices.shape[0])
+                        if batch_size > 0:
+                            sample_indices = torch.randperm(edge_indices.shape[0])[:batch_size]
+                            sampled_edges = edge_indices[sample_indices]
+                            
+                            subject_indices = sampled_edges[:, 0]
+                            object_indices = sampled_edges[:, 1]
+                            subject_features = node_features[subject_indices]
+                            object_features = node_features[object_indices]
+                            relation_features = edge_feats[sample_indices]
+                            
+                            subject_cls_pred = obj_pred_softmax[subject_indices]
+                            object_cls_pred = obj_pred_softmax[object_indices]
+                            relation_cls_pred = rel_pred[sample_indices]
+                            
+                            subject_cls_idx = subject_cls_pred.argmax(dim=1)
+                            object_cls_idx = object_cls_pred.argmax(dim=1)
+                            
+                            clip_rel_loss = 0
+                            
+                            for i in range(batch_size):
+                                subject_name = self.obj_label_list[subject_cls_idx[i]]
+                                object_name = self.obj_label_list[object_cls_idx[i]]
+                                
+                                if self.d_config.multi_rel:
+                                    rel_idx = relation_cls_pred[i].argmax().item()
+                                    relation_name = self.rel_label_list[rel_idx]
+                                else:
+                                    rel_idx = relation_cls_pred[i].argmax().item()
+                                    relation_name = self.rel_label_list[rel_idx]
+                                
+                                triplet_text_emb = self._get_text_embedding(
+                                    "a point cloud of a {subj} {pred} a {obj}", 
+                                    {"subj": subject_name, "pred": relation_name, "obj": object_name}
+                                )
+                                
+                                triplet_feature = self.triplet_projector(
+                                    subject_features[i].unsqueeze(0), 
+                                    object_features[i].unsqueeze(0), 
+                                    relation_features[i].unsqueeze(0)
+                                )
+                                triplet_feature = F.normalize(triplet_feature, p=2, dim=1)
+                                
+                                clip_rel_loss += (1 - F.cosine_similarity(triplet_feature, triplet_text_emb)).mean()
+                            
+                            triplet_loss = clip_rel_loss / batch_size
+                            self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
+                    except Exception as e:
+                        print(f"Error during calculate triplet loss: {str(e)}")
+                        triplet_loss = torch.tensor(0.0, device=self.device)
+                
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
                 lambda_g = self.t_config.lambda_geo
                 lambda_v = self.t_config.lambda_view
+                lambda_t = self.t_config.lambda_triplet
                 # lambda_c = self.t_config.lambda_con # 0.1
                 # + lambda_c * contrastive_loss \
                     
@@ -160,7 +298,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 t_loss = lambda_o * c_obj_loss \
                     + lambda_r * c_rel_loss \
                     + lambda_g * geo_aux_loss \
-                    + lambda_v * edge_clip_aux_loss
+                    + lambda_v * edge_clip_aux_loss \
+                    + lambda_t * triplet_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -174,10 +313,17 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     ("train/obj_loss", c_obj_loss.detach().item()),
                     # ("train/contrastive_loss", contrastive_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
+                ]
+                
+                if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
+                    t_log.append(("train/triplet_loss", triplet_loss.detach().item()))
+                
+                t_log += [
                     ("Misc/epo", int(e)),
                     ("Misc/it", int(idx)),
                     ("lr", self.lr_scheduler.get_last_lr()[0])
                 ]
+                
                 if e % self.t_config.log_interval == 0:
                     logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                     t_log += logs
@@ -193,6 +339,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))
             
             self.wandb_log["Train/learning_rate"] = self.lr_scheduler.get_last_lr()[0]
+            if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
+                self.wandb_log["Train/Triplet_Loss"] = self.meters['Train/Triplet_Loss'].avg
             self.write_wandb_log()
             wandb.log(self.wandb_log)
     
