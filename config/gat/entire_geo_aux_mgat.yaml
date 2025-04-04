@@ -17,7 +17,7 @@ train:
   log_interval: 5
   evaluation_interval: 5
   save_interval: 10
-  batch_size: 2
+  batch_size: 1
   workers: 8
   wandb_path: ./wandb
   wandb_project: Geo_MGAT
