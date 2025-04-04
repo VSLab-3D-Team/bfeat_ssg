@@ -35,7 +35,7 @@ train:
   lambda_geo: 1.0
   lambda_view: 1.0
   oversampling: false
-  seed: 42
+  seed: 2828
 
 model:
   num_graph_update: 2 # 1
