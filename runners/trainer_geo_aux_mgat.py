@@ -96,18 +96,31 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             
             self.triplet_projector = TripletProjector(node_dim, edge_dim).to(device)
             
+            self.edge_projector = nn.Sequential(
+                nn.Linear(edge_dim, edge_dim),
+                nn.ReLU(),
+                nn.Linear(edge_dim, 512)
+            ).to(device)
+            
             self._text_embeddings_cache = {}
             
             self.lambda_triplet = getattr(self.t_config, 'lambda_triplet', 1.0)
+            self.lambda_edge = getattr(self.t_config, 'lambda_edge_text', 1.5)
             
             self.use_triplet_loss = True
+            self.use_edge_loss = True
             print(f"Triplet loss initialization success. (Weight: {self.lambda_triplet})")
+            print(f"Edge loss initialization success. (Weight: {self.lambda_edge})")
             
-            self.add_meters(["Train/Triplet_Loss"])
-            
+            self.add_meters([
+                "Train/Triplet_Loss",
+                "Train/Edge_Text_Loss"
+            ])
+        
         except Exception as e:
-            print(f"Triplet loss initialization failed: {e}")
+            print(f"Triplet/Edge loss initialization failed: {e}")
             self.use_triplet_loss = False
+            self.use_edge_loss = False
         
         self.add_meters([
             "Train/Geo_Aux_Loss",
@@ -226,6 +239,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 edge_clip_aux_loss = self.cosine_loss(pred_edge_clip, edge_2d_feats)
                 
                 triplet_loss = torch.tensor(0.0, device=self.device)
+                edge_text_loss = torch.tensor(0.0, device=self.device)
                 if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                     try:
                         with torch.no_grad():
@@ -285,12 +299,49 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                         print(f"Error during calculate triplet loss: {str(e)}")
                         triplet_loss = torch.tensor(0.0, device=self.device)
                 
+                if hasattr(self, 'use_edge_loss') and self.use_edge_loss:
+                    try:
+                        rel_pred_softmax = rel_pred
+                        
+                        batch_size = min(128, edge_indices.shape[0])
+                        if batch_size > 0:
+                            sample_indices = torch.randperm(edge_indices.shape[0])[:batch_size]
+                            relation_features = edge_feats[sample_indices]
+                            relation_cls_pred = rel_pred_softmax[sample_indices]
+                            
+                            edge_loss = 0
+                            
+                            for i in range(batch_size):
+                                if self.d_config.multi_rel:
+                                    rel_idx = relation_cls_pred[i].argmax().item()
+                                    relation_name = self.rel_label_list[rel_idx]
+                                else:
+                                    rel_idx = relation_cls_pred[i].argmax().item()
+                                    relation_name = self.rel_label_list[rel_idx]
+                                
+                                relation_text_emb = self._get_text_embedding(
+                                    "{pred}", 
+                                    {"pred": relation_name}
+                                )
+                                
+                                edge_feature = self.edge_projector(relation_features[i].unsqueeze(0))
+                                edge_feature = F.normalize(edge_feature, p=2, dim=1)
+                                
+                                edge_loss += (1 - F.cosine_similarity(edge_feature, relation_text_emb)).mean()
+                            
+                            edge_text_loss = edge_loss / batch_size
+                            self.meters['Train/Edge_Text_Loss'].update(edge_text_loss.detach().item())
+                    except Exception as e:
+                        print(f"Error during calculate edge text loss: {str(e)}")
+                        edge_text_loss = torch.tensor(0.0, device=self.device)
+
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
                 lambda_g = self.t_config.lambda_geo
                 lambda_v = self.t_config.lambda_view
                 lambda_t = self.t_config.lambda_triplet
+                lambda_e = self.t_config.lambda_edge
                 # lambda_c = self.t_config.lambda_con # 0.1
                 # + lambda_c * contrastive_loss \
                     
@@ -299,7 +350,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     + lambda_r * c_rel_loss \
                     + lambda_g * geo_aux_loss \
                     + lambda_v * edge_clip_aux_loss \
-                    + lambda_t * triplet_loss
+                    + lambda_t * triplet_loss \
+                    + lambda_e * edge_text_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -308,6 +360,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 # self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
                 self.meters['Train/Geo_Aux_Loss'].update(geo_aux_loss.detach().item()) 
                 self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
+                self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
+                self.meters['Train/Edge_Loss'].update(edge_text_loss.detach().item())
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
@@ -317,6 +371,9 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 
                 if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                     t_log.append(("train/triplet_loss", triplet_loss.detach().item()))
+
+                if hasattr(self, 'use_edge_loss') and self.use_edge_loss:
+                    t_log.append(("train/edge_text_loss", edge_text_loss.detach().item()))
                 
                 t_log += [
                     ("Misc/epo", int(e)),
@@ -341,6 +398,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             self.wandb_log["Train/learning_rate"] = self.lr_scheduler.get_last_lr()[0]
             if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                 self.wandb_log["Train/Triplet_Loss"] = self.meters['Train/Triplet_Loss'].avg
+            if hasattr(self, 'use_edge_loss') and self.use_edge_loss:
+                self.wandb_log["Train/Edge_Text_Loss"] = self.meters['Train/Edge_Text_Loss'].avg
             self.write_wandb_log()
             wandb.log(self.wandb_log)
     

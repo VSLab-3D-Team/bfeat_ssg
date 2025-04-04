@@ -35,6 +35,7 @@ train:
   lambda_geo: 1.0
   lambda_view: 1.0
   lambda_triplet: 0.0
+  lambda_edge: 1.0
   oversampling: false
   seed: 2828
 
@@ -50,7 +51,7 @@ model:
   use_normal: true
   flow: target_to_source
   num_layers: 8
-  relation_type: "masking"
+  relation_type: "resnet"
   edge_attention: false
   gat_type: "bidirectional"
   use_distance_mask: true
