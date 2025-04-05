@@ -134,9 +134,40 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
             
             if edge_2d_feats is not None:
-                edge_feats = self.relation_encoder(
-                    x_i_feats, x_j_feats, geo_i_feats - geo_j_feats, edge_2d_feats
-                )
+                num_edges = x_i_feats.shape[0]
+                
+                print(f"Debug - x_i_feats shape: {x_i_feats.shape}, edge_2d_feats shape: {edge_2d_feats.shape}")
+                
+                if len(edge_2d_feats.shape) == 1:
+                    edge_2d_feats = edge_2d_feats.unsqueeze(0).expand(num_edges, -1)
+                
+                elif edge_2d_feats.shape[0] != num_edges:
+                    print(f"Adjusting edge_2d_feats from shape {edge_2d_feats.shape} to match {num_edges} edges")
+                    
+                    if edge_2d_feats.shape[0] < num_edges:
+                        padded_feats = torch.zeros(num_edges, edge_2d_feats.shape[1], 
+                                                device=edge_2d_feats.device, 
+                                                dtype=edge_2d_feats.dtype)
+                        padded_feats[:edge_2d_feats.shape[0]] = edge_2d_feats
+                        edge_2d_feats = padded_feats
+                    else:
+                        edge_2d_feats = edge_2d_feats[:num_edges]
+                
+                if hasattr(self.relation_encoder, 'forward') and 'img_feats' in self.relation_encoder.forward.__code__.co_varnames:
+                    edge_feats = self.relation_encoder(
+                        x_i_feats, x_j_feats, geo_i_feats - geo_j_feats, edge_2d_feats
+                    )
+                else:
+                    e_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+                    
+                    img_proj = getattr(self, 'img_proj', None)
+                    if img_proj is None:
+                        self.img_proj = nn.Linear(edge_2d_feats.shape[1], e_feats.shape[1]).to(e_feats.device)
+                        img_proj = self.img_proj
+                    
+                    img_feats_proj = img_proj(edge_2d_feats)
+                    
+                    edge_feats = e_feats + img_feats_proj
             else:
                 edge_feats = self.relation_encoder(
                     x_i_feats, x_j_feats, geo_i_feats - geo_j_feats
