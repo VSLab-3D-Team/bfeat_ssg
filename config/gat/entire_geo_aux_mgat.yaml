@@ -33,8 +33,8 @@ train:
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_geo: 1.0
-  lambda_view: 1.0
-  lambda_triplet: 1.0 # triplet loss
+  lambda_view: 0.0
+  lambda_triplet: 0.0 # triplet loss
   lambda_edge: 0.0 # edge loss
   oversampling: false
   seed: 2828
@@ -51,7 +51,7 @@ model:
   use_normal: true
   flow: target_to_source
   num_layers: 8
-  relation_type: "resnet" # rel encoder type
+  relation_type: "image" # rel encoder type
   edge_attention: false
   gat_type: "bidirectional" # gat type
   use_distance_mask: true
