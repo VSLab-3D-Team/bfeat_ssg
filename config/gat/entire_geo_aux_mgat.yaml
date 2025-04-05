@@ -14,9 +14,9 @@ train:
   ckp_path: ./model_checkpoints/obj_encoder.pth
   name: GAT
   epoch: 1000
-  log_interval: 5
-  evaluation_interval: 5
-  save_interval: 10
+  log_interval: 1000
+  evaluation_interval: 1
+  save_interval: 1
   batch_size: 8
   workers: 8
   wandb_path: ./wandb
@@ -51,7 +51,7 @@ model:
   use_normal: true
   flow: target_to_source
   num_layers: 8
-  relation_type: "resnet" # rel encoder type
+  relation_type: "masking" # rel encoder type
   edge_attention: false
   gat_type: "bidirectional" # gat type
   use_distance_mask: true
