@@ -33,7 +33,7 @@ train:
   lambda_obj: 0.1
   lambda_rel: 1.0
   lambda_geo: 1.0
-  lambda_view: 0.0
+  lambda_view: 1.0
   lambda_triplet: 1.0
   lambda_edge: 0.0
   oversampling: false
