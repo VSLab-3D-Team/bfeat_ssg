@@ -583,10 +583,10 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         self.num_layers = kwargs['num_layers']
         self.use_distance_mask = kwargs.get('use_distance_mask', True)
 
-        node_lambda_init_1 = kwargs.get('node_lambda_init_1', 0.5)
-        node_lambda_init_2 = kwargs.get('node_lambda_init_2', 0.5)
-        edge_lambda_init_1 = kwargs.get('edge_lambda_init_1', 0.5)
-        edge_lambda_init_2 = kwargs.get('edge_lambda_init_2', 0.5)
+        node_lambda_init_1 = kwargs.get('node_lambda_init_1', 0.1)
+        node_lambda_init_2 = kwargs.get('node_lambda_init_2', 0.1)
+        edge_lambda_init_1 = kwargs.get('edge_lambda_init_1', 1.0)
+        edge_lambda_init_2 = kwargs.get('edge_lambda_init_2', 1.0)
         
         self.node_lambda_1 = torch.nn.Parameter(torch.tensor(node_lambda_init_1))
         self.node_lambda_2 = torch.nn.Parameter(torch.tensor(node_lambda_init_2))
