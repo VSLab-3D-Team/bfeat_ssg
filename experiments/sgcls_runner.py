@@ -48,7 +48,7 @@ class EntireExperimentRunners(BaseExperimentRunner):
         sgcls_recall_list_wo, predcls_recall_list_wo, sgcls_recall_list_w, predcls_recall_list_w, sgcls_mean_recall_list_w, predcls_mean_recall_list_w  = [],[],[],[],[],[]
         logs = []
         
-        self.model.set_inference_mode()
+        # self.model.set_inference_mode()
         self.model = self.model.eval()
         for i, (
             obj_pts, 
