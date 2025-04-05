@@ -64,6 +64,14 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
                 dim_geo_feats=self.m_config.dim_geo_feats,
                 dim_edge_feats=self.m_config.dim_edge_feats
             ).to(self.device)
+        elif self.m_config.relation_type == "image":
+            self.relation_encoder = RelFeatImageAwareExtractor(
+            self.m_config.dim_obj_feats,
+            self.m_config.dim_geo_feats,
+            512,
+            self.m_config.dim_edge_feats,
+            num_layers=self.m_config.num_layers
+            ).to(self.device)
         else:
             raise NotImplementedError
         
@@ -114,6 +122,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         edge_feat_mask: torch.Tensor,
         batch_ids=None,
         attn_weight=None,
+        edge_2d_feats=None,
     ):
         with torch.no_grad():
             _obj_feats, _, _ = self.point_encoder(obj_pts)
@@ -123,7 +132,15 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         if not self.m_config.relation_type == "pointnet":
             x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
             geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-            edge_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+            
+            if edge_2d_feats is not None:
+                edge_feats = self.relation_encoder(
+                    x_i_feats, x_j_feats, geo_i_feats - geo_j_feats, edge_2d_feats
+                )
+            else:
+                edge_feats = self.relation_encoder(
+                    x_i_feats, x_j_feats, geo_i_feats - geo_j_feats
+                )
         else:
             edge_feats = self.relation_encoder(edge_pts)
         

@@ -166,3 +166,33 @@ class MaskingExtractor(nn.Module):
         e_ij = self.merge_layer(m_ij).squeeze(1)
         r_ij = self.res_blocks(e_ij)
         return self.fc_out(r_ij)
+    
+class RelFeatImageAwareExtractor(nn.Module):
+    def __init__(self, input_dim, geo_dim, img_dim, out_dim, num_layers=6):
+        super(RelFeatImageAwareExtractor, self).__init__()
+        self.obj_proj = nn.Linear(input_dim, 512)
+        self.geo_proj = nn.Linear(geo_dim, 512)
+        self.img_proj = nn.Linear(img_dim, 512)
+        
+        self.merge_layer = nn.Conv1d(in_channels=4, out_channels=1, kernel_size=5, stride=1, padding="same")
+        
+        self.res_blocks = nn.Sequential(*[ResidualBlock(512) for _ in range(num_layers)])
+        self.fc_out = nn.Linear(512, out_dim) 
+        
+    def forward(self, x_i: torch.Tensor, x_j: torch.Tensor, geo_feats: torch.Tensor, img_feats: torch.Tensor = None):
+        p_i, p_j, g_ij = self.obj_proj(x_i), self.obj_proj(x_j), self.geo_proj(geo_feats)
+        
+        if img_feats is not None:
+            i_ij = self.img_proj(img_feats)
+            m_ij = torch.cat([
+                p_i.unsqueeze(1), p_j.unsqueeze(1), g_ij.unsqueeze(1), i_ij.unsqueeze(1)
+            ], dim=1)
+        else:
+            m_ij = torch.cat([
+                p_i.unsqueeze(1), p_j.unsqueeze(1), g_ij.unsqueeze(1), 
+                torch.zeros_like(p_i).unsqueeze(1)
+            ], dim=1)
+        
+        e_ij = self.merge_layer(m_ij).squeeze(1)
+        r_ij = self.res_blocks(e_ij)
+        return self.fc_out(r_ij)

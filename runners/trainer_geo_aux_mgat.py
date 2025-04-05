@@ -178,7 +178,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         return weights
     
     def train(self):
-        
+
         self.model = self.model.train()
         n_iters = len(self.t_dataloader)
         val_metric = -987654321
@@ -226,7 +226,11 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 attn_tfidf_weight = None # self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
                 
                 edge_feats, obj_pred, rel_pred, pred_edge_clip, pred_geo_desc, edge_desc = \
-                    self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids, attn_tfidf_weight)
+                    self.model(
+                        obj_pts, rel_pts, edge_indices.t().contiguous(), 
+                        descriptor, edge_feat_mask, batch_ids, attn_tfidf_weight,
+                        edge_2d_feats
+                    )
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
                 c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label, weight=obj_weight)
@@ -448,7 +452,10 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 # tfidf_class = self.tfidf.get_mask(gt_obj_label, batch_ids)
                 # attn_tfidf_weight = tfidf_class[gt_obj_label.long()] # N_obj X 1 
                 
-                _, obj_pred, rel_pred, _, _, _ = self.model(obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids) # attn_tfidf_weight
+                _, obj_pred, rel_pred, _, _, _ = self.model(
+                    obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids, None,  # attn_tfidf_weight
+                    edge_2d_feats
+                )
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
