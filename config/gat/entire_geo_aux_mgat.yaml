@@ -34,13 +34,13 @@ train:
   lambda_rel: 1.0
   lambda_geo: 1.0
   lambda_view: 1.0
-  lambda_triplet: 0.0
+  lambda_triplet: 1.0
   lambda_edge: 0.0
   oversampling: false
   seed: 2828
 
 model:
-  num_graph_update: 1 # 1
+  num_graph_update: 2 # 1
   layers: 50
   dim_edge_feats: 512
   dim_obj_feats: 512
@@ -51,7 +51,7 @@ model:
   use_normal: true
   flow: target_to_source
   num_layers: 8
-  relation_type: "resnet"
+  relation_type: "masking"
   edge_attention: false
   gat_type: "bidirectional"
   use_distance_mask: true
