@@ -55,7 +55,7 @@ model:
   relation_type: "resnet" # rel encoder type
   edge_attention: false
   gat_type: "bidirectional" # gat type
-  use_distance_mask: false
+  use_distance_mask: true
 
 optimizer:
   learning_rate: 0.0001

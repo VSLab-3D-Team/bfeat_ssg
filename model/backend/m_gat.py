@@ -9,6 +9,7 @@ import os
 from torch_geometric.nn.conv import MessagePassing
 from torch import Tensor
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Optional
 from copy import deepcopy
 from torch_scatter import scatter
@@ -261,7 +262,8 @@ class BidirectionalEdgeLayer(MessagePassing):
                  aggr='max',
                  attn_dropout: float = 0.3,
                  flow: str = 'target_to_source',
-                 use_distance_mask: bool = True):
+                 use_distance_mask: bool = True,
+                 use_node_attention: bool = True):
         super().__init__(aggr=aggr, flow=flow)
         assert dim_node % num_heads == 0
         assert dim_edge % num_heads == 0
@@ -275,6 +277,7 @@ class BidirectionalEdgeLayer(MessagePassing):
         self.dim_edge = dim_edge
         self.dim_atten = dim_atten
         self.use_distance_mask = use_distance_mask
+        self.use_node_attention = use_node_attention
 
         self.proj_q = build_mlp([dim_node, dim_node])
         self.proj_v = build_mlp([dim_node, dim_atten])
@@ -282,6 +285,12 @@ class BidirectionalEdgeLayer(MessagePassing):
         self.proj_k = build_mlp([dim_edge, dim_edge])
         
         self.distance_mlp = build_mlp([4, 32, 1], do_bn=use_bn, on_last=False)
+        
+        if self.use_node_attention:
+            self.node_distance_mlp = build_mlp([1, 32, 1], do_bn=use_bn, on_last=False)
+            self.node_self_attn_q = build_mlp([dim_node, dim_node], do_bn=use_bn)
+            self.node_self_attn_k = build_mlp([dim_node, dim_node], do_bn=use_bn)
+            self.node_self_attn_v = build_mlp([dim_node, dim_node], do_bn=use_bn)
         
         self.nn_edge_update = build_mlp([dim_node*2+dim_edge*2, dim_node+dim_edge*2, dim_edge],
                                        do_bn=use_bn, on_last=False)
@@ -302,6 +311,47 @@ class BidirectionalEdgeLayer(MessagePassing):
             attn_dropout) if attn_dropout > 0 else torch.nn.Identity()
         
         self.sigmoid = torch.nn.Sigmoid()
+
+    def create_node_distance_mask(self, node_positions):
+
+        if not self.use_node_attention:
+            return None
+            
+        num_nodes = node_positions.size(0)
+        distance_matrix = torch.zeros((num_nodes, num_nodes), device=node_positions.device)
+        
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                diff = node_positions[i] - node_positions[j]
+                distance_matrix[i, j] = torch.norm(diff, p=2)
+        
+        distance_features = self.node_distance_mlp(distance_matrix.unsqueeze(-1))
+        attention_mask = self.sigmoid(distance_features).squeeze(-1)
+        
+        return attention_mask
+    
+    def apply_node_self_attention(self, x, distance_mask=None):
+
+        if not self.use_node_attention:
+            return x
+            
+        num_nodes = x.size(0)
+        
+        q = self.node_self_attn_q(x)  # [N, D]
+        k = self.node_self_attn_k(x)  # [N, D]
+        v = self.node_self_attn_v(x)  # [N, D]
+        
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dim_node)  # [N, N]
+        
+        if distance_mask is not None:
+            attn_scores = attn_scores * distance_mask
+        
+        attn_weights = F.softmax(attn_scores, dim=-1)  # [N, N]
+        attn_weights = self.dropout(attn_weights)
+        
+        output = torch.matmul(attn_weights, v)  # [N, D]
+        
+        return output
 
     def forward(self, x, edge_feature, edge_index, node_positions=None):
         row, col = edge_index
@@ -354,6 +404,11 @@ class BidirectionalEdgeLayer(MessagePassing):
             x_ori=x
         )
         
+        if self.use_node_attention and self.use_distance_mask and node_positions is not None:
+            node_distance_mask = self.create_node_distance_mask(node_positions)
+            node_self_attn_output = self.apply_node_self_attention(updated_node, node_distance_mask)
+            updated_node = updated_node + node_self_attn_output
+        
         twin_edge_attention = torch.zeros((x.size(0), self.dim_edge*2), device=x.device)
         
         for node_id in range(x.size(0)):
@@ -376,8 +431,8 @@ class BidirectionalEdgeLayer(MessagePassing):
         edge_attention = self.edge_attention_mlp(twin_edge_attention)
         edge_attention = self.sigmoid(edge_attention)
         
-        node_feature_nonlinear = torch.nn.functional.relu(updated_node)  # f(v_i^l)
-        # node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
+        # node_feature_nonlinear = torch.nn.functional.relu(updated_node)  # f(v_i^l)
+        node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
         final_node = node_feature_nonlinear * edge_attention  # ⊙ β(A_ε)
         
         return final_node, updated_edge, prob
@@ -432,47 +487,6 @@ class BidirectionalEdgeLayer(MessagePassing):
         )
         
         return updated_node, updated_edge, prob
-
-class GraphEdgeAttenNetworkLayers_edge_update(torch.nn.Module):
-    """ A sequence of scene graph convolution layers with modified edge update mechanism """
-
-    def __init__(self, **kwargs):
-        super().__init__()
-        self.num_layers = kwargs['num_layers']
-
-        self.gconvs = torch.nn.ModuleList()
-        self.drop_out = None
-        if 'DROP_OUT_ATTEN' in kwargs:
-            self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
-
-        for _ in range(self.num_layers):
-            self.gconvs.append(filter_args_create(MSG_FAN_EDGE_UPDATE, kwargs))
-
-    def forward(self, data):
-        probs = list()
-        node_feature = data['node'].x
-        edge_feature = data['node', 'to', 'node'].x
-        edges_indices = data['node', 'to', 'node'].edge_index
-        
-        for i in range(self.num_layers):
-            gconv = self.gconvs[i]
-            node_feature, edge_feature, prob = gconv(
-                node_feature, edge_feature, edges_indices)
-
-            if i < (self.num_layers-1) or self.num_layers == 1:
-                node_feature = torch.nn.functional.relu(node_feature)
-                edge_feature = torch.nn.functional.relu(edge_feature)
-
-                if self.drop_out:
-                    node_feature = self.drop_out(node_feature)
-                    edge_feature = self.drop_out(edge_feature)
-
-            if prob is not None:
-                probs.append(prob.cpu().detach())
-            else:
-                probs.append(None)
-                
-        return node_feature, edge_feature, probs
     
 class GraphEdgeAttenNetworkLayers_masking(torch.nn.Module):
     """ A sequence of scene graph convolution layers with node masking only """
