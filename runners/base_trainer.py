@@ -80,7 +80,7 @@ class BaseTrainer(ABC):
     
         # Wandb & Logger
         now = datetime.now()
-        self.exp_name = f"{self.t_config.wandb_project}_{self.config.exp_desc}_{now.strftime('%Y-%m-%d_%H')}"
+        self.exp_name = f"{self.t_config.wandb_project}_{self.config.exp_desc}_{now.strftime('%Y-%m-%d_%H%M%S')}"
         self.__setup_checkpoint(self.exp_name)
         wandb.init(project="BetterFeat_3DSSG_GAT", 
                    entity="kimh060612-kyung-hee-university",
