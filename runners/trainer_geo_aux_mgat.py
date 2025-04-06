@@ -489,7 +489,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 predcls_recall_list.append(predcls_recall)
                 
                 topk_obj_list = np.concatenate((topk_obj_list, top_k_obj))
-                gt_obj_list = np.concatenate((gt_obj_list, gt_obj_label))
+                gt_obj_list = np.concatenate((gt_obj_list, gt_obj_label.cpu().numpy()))
                 topk_rel_list = np.concatenate((topk_rel_list, top_k_rel))
                 topk_triplet_list = np.concatenate((topk_triplet_list, top_k_triplet))
                 if cls_matrix is not None:
