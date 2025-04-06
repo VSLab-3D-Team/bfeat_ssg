@@ -571,6 +571,24 @@ def get_rel_mean_recall(topk_pred_list, cls_matrix, topk=[3, 5]):
     mean_recall = np.array(mean_recall, dtype=np.float32)
     return mean_recall.mean(axis=1)
 
+def get_obj_mean_recall(obj_topk_pred_list, obj_cls_matrix, topk=[1, 5, 10]):
+    if len(obj_cls_matrix) == 0:
+        return np.array([0 for _ in range(len(topk))])
+
+    mean_recall = [[] for _ in range(len(topk))]
+    cls_num = int(obj_cls_matrix.max())
+    
+    for i in range(cls_num):
+        cls_rank = obj_topk_pred_list[obj_cls_matrix == i]
+        
+        if len(cls_rank) == 0:
+            continue
+        for idx, top in enumerate(topk):
+            recall = (cls_rank <= top).sum() * 100 / len(cls_rank)
+            mean_recall[idx].append(recall)
+    mean_recall = np.array(mean_recall, dtype=np.float32)
+    return mean_recall.mean(axis=1)
+
 def handle_mean_recall(recall_input):
     '''
     recall_list : N * 26 * 3:List
