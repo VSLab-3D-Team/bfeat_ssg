@@ -1,6 +1,6 @@
 from model.frontend.pointnet import PointNetEncoder
 from model.backend.gat import BFeatVanillaGAT
-from model.backend.m_gat import BidirectionalEdgeGraphNetwork
+from model.backend.m_gat import BidirectionalEdgeGraphNetwork, MultiModalBIAttenNetworkLayers
 from model.frontend.relextractor import *
 from model.backend.classifier import RelationClsMulti, ObjectClsMulti
 from model.models.baseline import BaseNetwork
@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class BFeatGeoAuxMGATNet(BaseNetwork):
-    def __init__(self, config, n_obj_cls, n_rel_cls, device):
+    def __init__(self, config, n_obj_cls, n_rel_cls, obj_label_list, rel_label_list, device):
         super(BFeatGeoAuxMGATNet, self).__init__()
         self.config = config
         self.t_config = config.train
@@ -98,6 +98,19 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
                 DROP_OUT_ATTEN=self.t_config.drop_out,
                 use_bn=True
             )
+        elif self.m_config.gat_type == "text":
+            self.gat = MultiModalBIAttenNetworkLayers(
+                dim_node=self.m_config.dim_obj_feats,
+                dim_edge=self.m_config.dim_edge_feats,
+                dim_atten=self.m_config.dim_attn,
+                num_layers=self.m_config.num_graph_update,
+                num_heads=self.m_config.num_heads,
+                node_class_names = obj_label_list,
+                edge_class_names = rel_label_list,
+                aggr='max',
+                DROP_OUT_ATTEN=self.t_config.drop_out,
+                use_bn=False
+            )
         else:
             self.gat = BFeatVanillaGAT(
                 self.m_config.dim_obj_feats,
@@ -123,6 +136,8 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         batch_ids=None,
         attn_weight=None,
         edge_2d_feats=None,
+        gt_rel_label=None,
+        gt_obj_label=None
     ):
         with torch.no_grad():
             _obj_feats, _, _ = self.point_encoder(obj_pts)
@@ -182,6 +197,14 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         elif self.m_config.gat_type == "bidirectional" and self.m_config.use_distance_mask:
             obj_gnn_feats, edge_gnn_feats, _ = self.gat(
                 obj_feats, edge_feats, edge_indices, descriptor
+            )
+        if self.m_config.gat_type == "text" and not self.m_config.use_distance_mask:
+            obj_gnn_feats, edge_gnn_feats, kl_divs = self.gat(
+                obj_feats, edge_feats, edge_indices
+            )
+        elif self.m_config.gat_type == "text" and self.m_config.use_distance_mask:
+            obj_gnn_feats, edge_gnn_feats, kl_divs = self.gat(
+                obj_feats, edge_feats, edge_indices, gt_rel_label, gt_obj_label, descriptor
             )
         else:
             obj_center = descriptor[:, :3].clone()

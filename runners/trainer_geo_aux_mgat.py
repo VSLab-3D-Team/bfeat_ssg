@@ -63,6 +63,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             self.config, 
             self.num_obj_class, 
             self.num_rel_class, 
+            self.obj_label_list,
+            self.rel_label_list,
             device
         ).to(device)
         
