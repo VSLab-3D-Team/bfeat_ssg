@@ -247,6 +247,30 @@ class BaseTrainer(ABC):
         predicate_mean_5 = np.mean(predicate_mean_5)
         return predicate_mean_1 * 100, predicate_mean_3 * 100, predicate_mean_5 * 100
     
+    def compute_mean_object(self, gt_obj_label, topk_obj_list):
+        cls_dict = {}
+        for i in range(160):
+            cls_dict[i] = []
+        
+        for idx, j in enumerate(gt_obj_label):
+            cls_dict[j].append(topk_obj_list[idx])
+        
+        object_mean_1, object_mean_5, object_mean_10 = [], [], []
+        for i in range(160):
+            l = len(cls_dict[i])
+            if l > 0:
+                m_1 = (np.array(cls_dict[i]) <= 1).sum() / len(cls_dict[i])
+                m_5 = (np.array(cls_dict[i]) <= 5).sum() / len(cls_dict[i])
+                m_10 = (np.array(cls_dict[i]) <= 10).sum() / len(cls_dict[i])
+                object_mean_1.append(m_1)
+                object_mean_5.append(m_5)
+                object_mean_10.append(m_10) 
+           
+        object_mean_1 = np.mean(object_mean_1)
+        object_mean_5 = np.mean(object_mean_5)
+        object_mean_10 = np.mean(object_mean_10)
+        return object_mean_1 * 100, object_mean_5 * 100, object_mean_10 * 100
+    
     def draw_graph(self,predicate_mean, topk_index):
         fig, ax1 = plt.subplots(figsize=(13,10))
 
