@@ -749,6 +749,12 @@ class MSG_MMAN_BI(MessagePassing):
         
         node_class_indices = gt_obj_label
         edge_class_indices = gt_rel_label
+        print("node gt: ", node_class_indices.size())
+        print("node feature: ", x.size())
+        print()
+        print("edge gt: ", edge_class_indices.size())
+        print("edge feature: ", edge_feature.size())
+        print("edge idx: ", edge_index.size())
         
         if edge_class_indices.dim() > 1: # multi-label (one-hot vector processing)
             edge_class_indices = edge_class_indices.argmax(dim=1)

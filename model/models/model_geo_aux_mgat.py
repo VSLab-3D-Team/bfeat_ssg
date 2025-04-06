@@ -223,7 +223,8 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             rel_pred, \
             pred_edge_clip, \
             pred_geo_desc, \
-            geo_i_feats - geo_j_feats
+            geo_i_feats - geo_j_feats, \
+            kl_divs
         
         
         

@@ -227,11 +227,11 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 # TF-IDF Attention Mask Generation
                 attn_tfidf_weight = None # self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
                 
-                edge_feats, obj_pred, rel_pred, pred_edge_clip, pred_geo_desc, edge_desc = \
+                edge_feats, obj_pred, rel_pred, pred_edge_clip, pred_geo_desc, edge_desc, kl_divs = \
                     self.model(
                         obj_pts, rel_pts, edge_indices.t().contiguous(), 
                         descriptor, edge_feat_mask, batch_ids, attn_tfidf_weight,
-                        edge_2d_feats
+                        edge_2d_feats, gt_rel_label, gt_obj_label
                     )
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
@@ -246,6 +246,15 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 
                 triplet_loss = torch.tensor(0.0, device=self.device)
                 edge_text_loss = torch.tensor(0.0, device=self.device)
+                
+                if isinstance(kl_divs, list):
+                    if len(kl_divs) > 0:
+                        attn_reg_loss = sum(kl_divs) / len(kl_divs)
+                    else:
+                        attn_reg_loss = torch.tensor(0.0, device=self._device)
+                else:
+                    attn_reg_loss = kl_divs
+                    
                 if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                     try:
                         with torch.no_grad():
@@ -357,7 +366,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     + lambda_g * geo_aux_loss \
                     + lambda_v * edge_clip_aux_loss \
                     + lambda_t * triplet_loss \
-                    + lambda_e * edge_text_loss
+                    + lambda_e * edge_text_loss \
+                    + attn_reg_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
