@@ -418,7 +418,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         logs = []
         
         with torch.no_grad():
-            self.model.set_inference_mode()
+            # self.model.set_inference_mode()
             self.model = self.model.eval()
             for idx, (
                 obj_pts, 
