@@ -367,7 +367,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     + lambda_v * edge_clip_aux_loss \
                     + lambda_t * triplet_loss \
                     + lambda_e * edge_text_loss \
-                    + attn_reg_loss
+                    + attn_reg_loss*2
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
