@@ -177,6 +177,14 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             self._text_embeddings_cache[text] = embedding
             
         return embedding
+    
+    def set_inference_mode(self): # for masking
+        if hasattr(self.relation_encoder, 'set_inference_mode'):
+            self.relation_encoder.set_inference_mode()
+    
+    def set_training_mode(self): # for masking
+        if hasattr(self.relation_encoder, 'set_training_mode'):
+            self.relation_encoder.set_training_mode()
         
     def forward(
         self, 

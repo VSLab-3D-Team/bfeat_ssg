@@ -418,7 +418,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         logs = []
         
         with torch.no_grad():
-            # self.model.set_inference_mode()
+            if hasattr(self.model, 'set_inference_mode'):
+                self.model.set_inference_mode()
             self.model = self.model.eval()
             for idx, (
                 obj_pts, 
@@ -576,6 +577,10 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             self.wandb_log["Validation/Acc@1/obj_cls_acc_mean"] =  obj_acc_mean_1
             self.wandb_log["Validation/Acc@5/obj_cls_acc_mean"] =  obj_acc_mean_5
             self.wandb_log["Validation/Acc@10/obj_cls_acc_mean"] =  obj_acc_mean_10
+
+        if hasattr(self.model, 'set_training_mode'):
+            self.model.set_training_mode()
+
         return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
     
 

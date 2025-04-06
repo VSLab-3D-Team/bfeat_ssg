@@ -122,7 +122,7 @@ class VLSAT3DEdgeEncoder(nn.Module):
         return edge_feats
     
 class MaskingExtractor(nn.Module):
-    def __init__(self, input_dim, geo_dim, out_dim, num_layers=6, mask_ratio=0.7):
+    def __init__(self, input_dim, geo_dim, out_dim, num_layers=6, mask_ratio=0.3):
         super(MaskingExtractor, self).__init__()
         self.obj_proj = nn.Linear(input_dim, 512)
         self.geo_proj = nn.Linear(geo_dim, 512)
