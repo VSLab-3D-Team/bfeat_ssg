@@ -554,12 +554,15 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         super().__init__()
         self.num_layers = kwargs['num_layers']
         self.use_distance_mask = kwargs.get('use_distance_mask', True)
+        self.use_node_attention = kwargs.get('use_node_attention', True)
 
         self.gconvs = torch.nn.ModuleList()
         self.drop_out = None
         if 'DROP_OUT_ATTEN' in kwargs:
             self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
 
+        kwargs['use_node_attention'] = self.use_node_attention
+        
         for _ in range(self.num_layers):
             self.gconvs.append(filter_args_create(BidirectionalEdgeLayer, kwargs))
 
@@ -570,7 +573,7 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         edges_indices = edges_indices
         
         node_positions = None
-        if self.use_distance_mask and not descriptor is None:
+        if (self.use_distance_mask or self.use_node_attention) and descriptor is not None:
             node_positions = descriptor[:, :3]
         
         for i in range(self.num_layers):
