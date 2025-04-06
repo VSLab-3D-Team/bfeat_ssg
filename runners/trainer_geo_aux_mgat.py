@@ -475,7 +475,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 predcls_recall_list.append(predcls_recall)
                 
                 topk_obj_list = np.concatenate((topk_obj_list, top_k_obj))
-                gt_obj_list = np.concatenate((gt_obj_list, gt_obj_label))
+                #gt_obj_list = np.concatenate((gt_obj_list, gt_obj_label))
                 topk_rel_list = np.concatenate((topk_rel_list, top_k_rel))
                 topk_triplet_list = np.concatenate((topk_triplet_list, top_k_triplet))
                 if cls_matrix is not None:
@@ -520,7 +520,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             predcls_recall=np.mean(predcls_recall_list,axis=0)
             
             rel_acc_mean_1, rel_acc_mean_3, rel_acc_mean_5 = self.compute_mean_predicate(cls_matrix_list, topk_rel_list)
-            obj_acc_mean_1, obj_acc_mean_5, obj_acc_mean_10 = self.compute_mean_object(gt_obj_list, topk_obj_list)
+            #obj_acc_mean_1, obj_acc_mean_5, obj_acc_mean_10 = self.compute_mean_object(gt_obj_list, topk_obj_list)
             self.compute_predicate_acc_per_class(cls_matrix_list, topk_rel_list)
             logs += [
                 ("Acc@1/obj_cls_acc", obj_acc_1),
@@ -547,9 +547,9 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 ("Predcls@50", predcls_recall[1]),
                 ("Predcls@100", predcls_recall[2]),
                 
-                ("Acc@1/obj_cls_acc_mean", obj_acc_mean_1),
-                ("Acc@5/obj_cls_acc_mean", obj_acc_mean_5),
-                ("Acc@10/obj_cls_acc_mean", obj_acc_mean_10),
+                #("Acc@1/obj_cls_acc_mean", obj_acc_mean_1),
+                #("Acc@5/obj_cls_acc_mean", obj_acc_mean_5),
+                #("Acc@10/obj_cls_acc_mean", obj_acc_mean_10),
             ]
             progbar.add(1, values=logs)
             
@@ -574,9 +574,9 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             self.wandb_log["Validation/Predcls@50"] = predcls_recall[1]
             self.wandb_log["Validation/Predcls@100"] = predcls_recall[2]  
             
-            self.wandb_log["Validation/Acc@1/obj_cls_acc_mean"] =  obj_acc_mean_1
-            self.wandb_log["Validation/Acc@5/obj_cls_acc_mean"] =  obj_acc_mean_5
-            self.wandb_log["Validation/Acc@10/obj_cls_acc_mean"] =  obj_acc_mean_10
+            #self.wandb_log["Validation/Acc@1/obj_cls_acc_mean"] =  obj_acc_mean_1
+            #self.wandb_log["Validation/Acc@5/obj_cls_acc_mean"] =  obj_acc_mean_5
+            #self.wandb_log["Validation/Acc@10/obj_cls_acc_mean"] =  obj_acc_mean_10
 
         if hasattr(self.model, 'set_training_mode'):
             self.model.set_training_mode()
