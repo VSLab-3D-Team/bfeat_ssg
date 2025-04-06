@@ -133,7 +133,6 @@ class EntireExperimentRunners(BaseExperimentRunner):
         rel_scores_list = np.stack(rel_scores_list)
         mean_recall = get_mean_recall(topk_triplet_list, cls_matrix_list)
         rel_mean_recall = get_rel_mean_recall(topk_rel_list, cls_matrix_list)
-        obj_mean_recall = get_obj_mean_recall(topk_obj_list, cls_matrix_list)
         
         obj_acc_1 = (topk_obj_list <= 1).sum() * 100 / len(topk_obj_list)
         obj_acc_5 = (topk_obj_list <= 5).sum() * 100 / len(topk_obj_list)
@@ -185,9 +184,6 @@ class EntireExperimentRunners(BaseExperimentRunner):
             ("R@100/triplet_recall", triplet_recall_100),
             ("rel_mean_recall@3", rel_mean_recall[0]),
             ("rel_mean_recall@5", rel_mean_recall[1]),
-            ("obj_mean_recall@1", obj_mean_recall[0]),
-            ("obj_mean_recall@5", obj_mean_recall[1]),
-            ("obj_mean_recall@10", obj_mean_recall[2]),
             ("mean_recall@50", mean_recall[0]),
             ("mean_recall@100", mean_recall[1]),
             
