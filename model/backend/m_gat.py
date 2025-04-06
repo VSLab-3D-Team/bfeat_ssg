@@ -376,8 +376,8 @@ class BidirectionalEdgeLayer(MessagePassing):
         edge_attention = self.edge_attention_mlp(twin_edge_attention)
         edge_attention = self.sigmoid(edge_attention)
         
-        # node_feature_nonlinear = torch.nn.functional.relu(updated_node)  # f(v_i^l)
-        node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
+        node_feature_nonlinear = torch.nn.functional.relu(updated_node)  # f(v_i^l)
+        # node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
         final_node = node_feature_nonlinear * edge_attention  # ⊙ β(A_ε)
         
         return final_node, updated_edge, prob
