@@ -418,6 +418,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         logs = []
         
         with torch.no_grad():
+            self.model.set_inference_mode()
             self.model = self.model.eval()
             for idx, (
                 obj_pts, 
@@ -499,6 +500,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             obj_scores_list = np.stack(obj_scores_list)
             rel_scores_list = np.stack(rel_scores_list)
             mean_recall = get_mean_recall(topk_triplet_list, cls_matrix_list)
+            # obj_mean_recall = get_obj_mean_recall(topk_obj_list, cls_matrix_list)
             
             obj_acc_1 = (topk_obj_list <= 1).sum() * 100 / len(topk_obj_list)
             obj_acc_5 = (topk_obj_list <= 5).sum() * 100 / len(topk_obj_list)
@@ -527,6 +529,9 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 ("Acc@3/rel_cls_acc_mean", rel_acc_mean_3),
                 ("Acc@5/rel_cls_acc", rel_acc_5),
                 ("Acc@5/rel_cls_acc_mean", rel_acc_mean_5),
+                # ("obj_mean_recall@1", obj_mean_recall[0]),
+                # ("obj_mean_recall@5", obj_mean_recall[1]),
+                # ("obj_mean_recall@10", obj_mean_recall[2]),
                 ("Acc@50/triplet_acc", triplet_acc_50),
                 ("Acc@100/triplet_acc", triplet_acc_100),
                 ("mean_recall@50", mean_recall[0]),
