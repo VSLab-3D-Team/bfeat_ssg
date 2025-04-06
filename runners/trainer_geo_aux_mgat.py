@@ -536,6 +536,9 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             obj_acc_mean_1, obj_acc_mean_5, obj_acc_mean_10 = self.compute_mean_object(gt_obj_list, topk_obj_list)
             self.compute_predicate_acc_per_class(cls_matrix_list, topk_rel_list)
             logs += [
+                ("Acc@1/obj_cls_acc_mean", obj_acc_mean_1),
+                ("Acc@5/obj_cls_acc_mean", obj_acc_mean_5),
+                ("Acc@10/obj_cls_acc_mean", obj_acc_mean_10),
                 ("Acc@1/obj_cls_acc", obj_acc_1),
                 ("Acc@5/obj_cls_acc", obj_acc_5),
                 ("Acc@10/obj_cls_acc", obj_acc_10),
@@ -556,12 +559,13 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 ("Predcls@20", predcls_recall[0]),
                 ("Predcls@50", predcls_recall[1]),
                 ("Predcls@100", predcls_recall[2]),
-                
-                ("Acc@1/obj_cls_acc_mean", obj_acc_mean_1),
-                ("Acc@5/obj_cls_acc_mean", obj_acc_mean_5),
-                ("Acc@10/obj_cls_acc_mean", obj_acc_mean_10),
             ]
             progbar.add(1, values=logs)
+            
+            
+            self.wandb_log["Validation/Acc@1/obj_cls_acc_mean"] =  obj_acc_mean_1
+            self.wandb_log["Validation/Acc@5/obj_cls_acc_mean"] =  obj_acc_mean_5
+            self.wandb_log["Validation/Acc@10/obj_cls_acc_mean"] =  obj_acc_mean_10
             
             self.wandb_log["Validation/Acc@1/obj_cls"] = obj_acc_1
             self.wandb_log["Validation/Acc@5/obj_cls"] = obj_acc_5
@@ -584,9 +588,6 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             self.wandb_log["Validation/Predcls@50"] = predcls_recall[1]
             self.wandb_log["Validation/Predcls@100"] = predcls_recall[2]  
             
-            self.wandb_log["Validation/Acc@1/obj_cls_acc_mean"] =  obj_acc_mean_1
-            self.wandb_log["Validation/Acc@5/obj_cls_acc_mean"] =  obj_acc_mean_5
-            self.wandb_log["Validation/Acc@10/obj_cls_acc_mean"] =  obj_acc_mean_10
         return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
     
 
