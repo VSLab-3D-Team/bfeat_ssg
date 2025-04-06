@@ -51,7 +51,7 @@ model:
   use_normal: true
   flow: target_to_source
   num_layers: 8
-  relation_type: "masking" # rel encoder type
+  relation_type: "resnet" # rel encoder type
   edge_attention: false
   gat_type: "bidirectional" # gat type
   use_distance_mask: true
