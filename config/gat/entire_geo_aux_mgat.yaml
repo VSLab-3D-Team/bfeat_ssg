@@ -34,7 +34,7 @@ train:
   lambda_rel: 1.0
   lambda_geo: 1.0
   lambda_view: 1.0
-  lambda_triplet: 0.0 # triplet loss
+  lambda_triplet: 1.0 # triplet loss
   lambda_edge: 0.0 # edge loss
   oversampling: false
   seed: 2828
