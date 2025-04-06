@@ -287,7 +287,7 @@ class BidirectionalEdgeLayer(MessagePassing):
         self.distance_mlp = build_mlp([4, 32, 1], do_bn=use_bn, on_last=False)
         
         if self.use_node_attention:
-            self.node_distance_mlp = build_mlp([1, 32, 1], do_bn=use_bn, on_last=False)
+            self.node_distance_mlp = build_mlp([1, 32, 1], do_bn=False, on_last=False)
             self.node_self_attn_q = build_mlp([dim_node, dim_node], do_bn=use_bn)
             self.node_self_attn_k = build_mlp([dim_node, dim_node], do_bn=use_bn)
             self.node_self_attn_v = build_mlp([dim_node, dim_node], do_bn=use_bn)
@@ -325,9 +325,10 @@ class BidirectionalEdgeLayer(MessagePassing):
                 diff = node_positions[i] - node_positions[j]
                 distance_matrix[i, j] = torch.norm(diff, p=2)
         
-        distance_features = self.node_distance_mlp(distance_matrix.unsqueeze(-1))
-        attention_mask = self.sigmoid(distance_features).squeeze(-1)
+        input_tensor = distance_matrix.view(-1, 1)
+        output = self.node_distance_mlp(input_tensor)
         
+        attention_mask = self.sigmoid(output).view(num_nodes, num_nodes)
         return attention_mask
     
     def apply_node_self_attention(self, x, distance_mask=None):
