@@ -196,7 +196,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/it'])
         loader = iter(self.v_dataloader)
         
-        topk_obj_list, topk_rel_list, topk_triplet_list, cls_matrix_list = np.array([]), np.array([]), np.array([]), []
+        topk_obj_list, topk_rel_list, topk_triplet_list, gt_obj_list, cls_matrix_list = np.array([]), np.array([]), np.array([]), np.array([]), []
         sub_scores_list, obj_scores_list, rel_scores_list = [], [], []
         sgcls_recall_list, predcls_recall_list  = [],[]
         logs = []

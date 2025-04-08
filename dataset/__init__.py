@@ -1,10 +1,14 @@
 from dataset.dataset_3dssg import SSGLWBFeat3D, SSGLWBFeat3DwMultiModal
-from dataset.dataset_geo import SSGFeatGeoAuxDataset
-from utils.data_utils import read_scan_data, read_scan_data_with_rgb, read_scan_data_with_edge_view
+from dataset.dataset_geo import SSGFeatGeoAuxDataset, SSGLWBFeat3DwMMGeo
+from utils.data_utils import read_scan_data, \
+        read_scan_data_with_rgb, \
+        read_scan_data_with_edge_view, \
+        read_scan_data_with_obj_edge_view
 from dataset.dataloader import CustomDataLoader, \
     collate_fn_bfeat, \
     collate_fn_bfeat_mv, \
     collate_fn_geo_aux, \
+    collate_fn_bfeat_edge_obj_mv, \
     SSGImbalanceSampler
 
 def build_dataset(config, split, device):
@@ -27,6 +31,14 @@ def build_dataset_edge_view(config, split, device):
     scan_data, relationship_json, objs_json, scans = read_scan_data_with_edge_view(config, split, device)
     dataset = SSGFeatGeoAuxDataset(
         config, split, device,
+        scan_data, relationship_json, objs_json, scans
+    )
+    return dataset
+
+def build_dataset_multi_view_geo(config, split, device, d_feats):
+    scan_data, relationship_json, objs_json, scans = read_scan_data_with_obj_edge_view(config, split, device)
+    dataset = SSGLWBFeat3DwMMGeo(
+        config, split, device, d_feats,
         scan_data, relationship_json, objs_json, scans
     )
     return dataset
@@ -103,6 +115,30 @@ def build_dataset_and_loader(data_type, config, device, batch_size, num_workers,
             shuffle=False,
             drop_last=True,
             collate_fn=collate_fn_geo_aux
+        )
+    elif data_type == "multi_view_geo":
+        t_dataset = build_dataset_multi_view_geo(config, split="train_scans", device=device, d_feats=dfeats)
+        v_dataset = build_dataset_multi_view_geo(config, split="validation_scans", device=device, d_feats=dfeats)
+        w_sampler = SSGImbalanceSampler(t_dataset) if oversampling else None
+        is_shuffle = True if not oversampling else False
+        t_dataloader = CustomDataLoader(
+            config, 
+            t_dataset, 
+            batch_size=batch_size,
+            num_workers=num_workers,
+            sampler=w_sampler,
+            shuffle=is_shuffle,
+            drop_last=True,
+            collate_fn=collate_fn_bfeat_edge_obj_mv
+        )
+        v_dataloader = CustomDataLoader(
+            config, 
+            v_dataset, 
+            batch_size=1,
+            num_workers=num_workers,
+            shuffle=False,
+            drop_last=True,
+            collate_fn=collate_fn_bfeat_edge_obj_mv
         )
     else:
         raise NotImplementedError

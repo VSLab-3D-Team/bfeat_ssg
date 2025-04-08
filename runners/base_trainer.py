@@ -14,7 +14,7 @@ from datetime import datetime
 import os
 
 class BaseTrainer(ABC):
-    def __init__(self, config, device, multi_view_ssl=False, geo_aux=False):
+    def __init__(self, config, device, multi_view_ssl=False, geo_aux=False, multi_view_geo=False):
         super().__init__()
         self.config = config
         self.device = device
@@ -24,8 +24,11 @@ class BaseTrainer(ABC):
         self.opt_config = config.optimizer
         torch.manual_seed(self.t_config.seed)              
         torch.cuda.manual_seed(self.t_config.seed)
+        np.random.seed(self.t_config.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
         
-        if not multi_view_ssl and not geo_aux:
+        if not multi_view_ssl and not geo_aux and not multi_view_geo:
             self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
                 build_dataset_and_loader(
                     "vanilla", 
@@ -35,7 +38,7 @@ class BaseTrainer(ABC):
                     self.t_config.workers, 
                     self.t_config.oversampling
                 )
-        elif not multi_view_ssl and geo_aux:
+        elif not multi_view_ssl and geo_aux and not multi_view_geo:
             self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
                 build_dataset_and_loader(
                     "edge_view_aux", 
@@ -44,6 +47,17 @@ class BaseTrainer(ABC):
                     self.t_config.batch_size, 
                     self.t_config.workers, 
                     self.t_config.oversampling
+                )
+        elif not multi_view_ssl and not geo_aux and multi_view_geo:
+            self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
+                build_dataset_and_loader(
+                    "multi_view_geo", 
+                    self.d_config, 
+                    self.device, 
+                    self.t_config.batch_size, 
+                    self.t_config.workers, 
+                    self.t_config.oversampling,
+                    dfeats=self.config.model.dim_obj_feats
                 )
         else :
             self.t_dataset, self.v_dataset, self.t_dataloader, self.v_dataloader = \
@@ -210,6 +224,30 @@ class BaseTrainer(ABC):
             ("train/Pred_R5", rel_topk_list[2]),
         ]
         return log
+    
+    def compute_mean_object(self, gt_obj_label, topk_obj_list):
+        cls_dict = {}
+        for i in range(160):
+            cls_dict[i] = []
+        
+        for idx, j in enumerate(gt_obj_label):
+            cls_dict[j].append(topk_obj_list[idx])
+        
+        object_mean_1, object_mean_5, object_mean_10 = [], [], []
+        for i in range(160):
+            l = len(cls_dict[i])
+            if l > 0:
+                m_1 = (np.array(cls_dict[i]) <= 1).sum() / len(cls_dict[i])
+                m_5 = (np.array(cls_dict[i]) <= 5).sum() / len(cls_dict[i])
+                m_10 = (np.array(cls_dict[i]) <= 10).sum() / len(cls_dict[i])
+                object_mean_1.append(m_1)
+                object_mean_5.append(m_5)
+                object_mean_10.append(m_10) 
+           
+        object_mean_1 = np.mean(object_mean_1)
+        object_mean_5 = np.mean(object_mean_5)
+        object_mean_10 = np.mean(object_mean_10)
+        return object_mean_1 * 100, object_mean_5 * 100, object_mean_10 * 100
     
     def compute_mean_predicate(self, cls_matrix_list, topk_pred_list):
         cls_dict = {}

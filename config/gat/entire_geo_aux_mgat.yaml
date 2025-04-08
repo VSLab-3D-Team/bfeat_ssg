@@ -13,11 +13,11 @@ dataset:
 train:
   ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
   name: GAT
-  epoch: 1000
-  seed: 2025
-  log_interval: 5
-  evaluation_interval: 5
-  save_interval: 5
+  epoch: 200
+  seed: 2828
+  log_interval: 1000
+  evaluation_interval: 1
+  save_interval: 1
   batch_size: 8
   workers: 8
   wandb_path: ./wandb

@@ -2,3 +2,4 @@ from runners.trainer import BFeatVanillaTrainer
 from runners.trainer_geo_aux import BFeatGeoAuxTrainer
 from runners.trainer_geo_aux_mgat import BFeatGeoAuxMGATTrainer
 from runners.trainer_caux_mgat import BFeatGeoSizeAuxMGATTrainer
+from runners.trainer_jjam import BFeatJjamTongTrainer

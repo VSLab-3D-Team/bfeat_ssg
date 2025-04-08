@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(description="Training BFeat Architecture")
 parser.add_argument("--mode", type=str, default="train", choices=["train", "experiment"], help="Select mode for BFeat (train/evaluation)")
 parser.add_argument("--runners", 
     type=str, default="vanilla", 
-    choices=["vanilla", "geo_aux", "geo_mgat", "sgeo_mgat" ], # 
+    choices=["vanilla", "geo_aux", "geo_mgat", "sgeo_mgat", "abl_jjamtong" ], # 
     help="Select running model"
 ) # "skipobj", "con_relonly", "triplet_con", "aux_con" , "triplet_gcn", "jjamtong_gcn", "sgg_point", "jjamtong_point"], "jjamtong", "full_scl", "direct_gnn", "finetune"
 parser.add_argument("--config", type=str, default="baseline.yaml", help="Runtime configuration file path")
@@ -28,6 +28,8 @@ def train(config):
         trainer = BFeatGeoAuxMGATTrainer(config, device)
     elif args.runners == "sgeo_mgat":
         trainer = BFeatGeoSizeAuxMGATTrainer(config, device)
+    elif args.runners == "abl_jjamtong":
+        trainer = BFeatJjamTongTrainer(config, device)
     else:
         raise NotImplementedError
     trainer.train()

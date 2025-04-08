@@ -125,6 +125,43 @@ def collate_fn_geo_aux(batch):
         torch.cat(edge_feat_mask, dim=0), \
         torch.cat(batch_ids, dim=0)
 
+def collate_fn_bfeat_edge_obj_mv(batch):
+    obj_point_list, obj_label_list = [], []
+    obj_feats_list, zero_mask_list = [], []
+    rel_point_list, rel_label_list = [], []
+    edge_clip_feats, edge_feat_mask = [], []
+    edge_indices, descriptor = [], []
+    batch_ids = []
+    
+    count = 0
+    for i, b in enumerate(batch):
+        obj_point_list.append(b[0])
+        obj_feats_list.append(b[1])
+        edge_clip_feats.append(b[2])
+        rel_point_list.append(b[3])
+        descriptor.append(b[4])
+        rel_label_list.append(b[5])
+        obj_label_list.append(b[6])
+        edge_indices.append(b[7] + count)
+        zero_mask_list.append(b[8])
+        edge_feat_mask.append(b[9])
+        # accumulate batch number to make edge_indices match correct object index
+        count += b[0].shape[0]
+        # get batchs location
+        batch_ids.append(torch.full((b[0].shape[0], 1), i))
+
+    return torch.cat(obj_point_list, dim=0), \
+        torch.cat(obj_feats_list, dim=0), \
+        torch.cat(edge_clip_feats, dim=0), \
+        torch.cat(rel_point_list, dim=0), \
+        torch.cat(descriptor, dim=0), \
+        torch.cat(rel_label_list, dim=0), \
+        torch.cat(obj_label_list, dim=0), \
+        torch.cat(zero_mask_list, dim=0), \
+        torch.cat(edge_feat_mask, dim=0), \
+        torch.cat(edge_indices, dim=0), \
+        torch.cat(batch_ids, dim=0)
+
 def collate_fn_bfeat_mv(batch):
     obj_point_list, obj_label_list = [], []
     obj_feats_list, zero_mask_list = [], []

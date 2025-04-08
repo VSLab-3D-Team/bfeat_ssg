@@ -14,9 +14,10 @@ train:
   ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
   name: GAT
   epoch: 1000
-  log_interval: 5
-  evaluation_interval: 5
-  save_interval: 5
+  seed: 777777
+  log_interval: 100
+  evaluation_interval: 1
+  save_interval: 1
   batch_size: 8
   workers: 8
   wandb_path: ./wandb
@@ -48,7 +49,7 @@ model:
   flow: target_to_source
   num_layers: 8
   relation_type: "resnet"
-  edge_attention: false
+  edge_attention: true
 
 optimizer:
   learning_rate: 0.0001

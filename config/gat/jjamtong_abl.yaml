@@ -13,33 +13,32 @@ dataset:
 train:
   ckp_path: ./model_checkpoints/pc_encoder_mv_vl.pth
   name: GAT
-  seed: 777777
   epoch: 1000
-  log_interval: 100
+  seed: 777777
+  log_interval: 1000000
   evaluation_interval: 1
-  save_interval: 1
+  save_interval: 20
   batch_size: 8
   workers: 8
   wandb_path: ./wandb
-  wandb_project: bfeat_sg_geo_mgat
+  wandb_project: bfeat_sg_jjamtong
   none_ratio: 0.1
-  drop_out: 0.3
+  drop_out: 0.5
   verbose: true
   meter: average
   scheduler: 'cosine'
   num_negative_sample: 8
   sampler: 'frequency'
-  freq_temperature: 0.3 # 0.5, 2
+  freq_temperature: 0.3
   loss_temperature: 0.3
   lambda_obj: 0.1
   lambda_rel: 1.0
-  lambda_geo: 1.0
-  lambda_view: 1.0
-  lambda_size: 1.0
+  lambda_con: 1.0
+  lambda_obj_con: 1.0
   oversampling: false
 
 model:
-  num_graph_update: 2 # 1
+  num_graph_update: 2
   layers: 50
   dim_edge_feats: 512
   dim_obj_feats: 512
