@@ -383,19 +383,42 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         return random.choices(strategies, weights=weights, k=1)[0]
 
     def _sample_from_replay_buffer(self, batch_size):
-      
+
         import random
         
         non_empty_classes = [cls for cls in range(self.num_rel_class) if len(self.replay_buffers[cls]) > 0]
         
         if len(non_empty_classes) == 0:
             return None, None
-            
+        
         weights = torch.tensor([self.class_difficulty[cls].item() for cls in non_empty_classes], device=self.device)
         weights = F.softmax(weights, dim=0)
         
-        class_sample_counts = torch.multinomial(weights, batch_size, replacement=True)
-        class_sample_counts = {non_empty_classes[i]: count.item() for i, count in enumerate(class_sample_counts)}
+        actual_samples = min(batch_size, len(non_empty_classes))
+        
+        if actual_samples == 0:
+            return None, None
+        
+        class_indices = torch.multinomial(weights, actual_samples, replacement=True)
+        
+        class_sample_counts = {}
+        for idx in class_indices:
+            cls = non_empty_classes[idx.item()]
+            class_sample_counts[cls] = class_sample_counts.get(cls, 0) + 1
+        
+        remaining_samples = batch_size - actual_samples
+        if remaining_samples > 0 and len(class_sample_counts) > 0:
+            selected_classes = list(class_sample_counts.keys())
+            selected_counts = list(class_sample_counts.values())
+            total_selected = sum(selected_counts)
+            
+            for i in range(remaining_samples):
+                probs = [count / total_selected for count in selected_counts]
+                selected_idx = random.choices(range(len(selected_classes)), weights=probs)[0]
+                selected_cls = selected_classes[selected_idx]
+                class_sample_counts[selected_cls] = class_sample_counts.get(selected_cls, 0) + 1
+                selected_counts[selected_idx] += 1
+                total_selected += 1
         
         sampled_features = []
         sampled_classes = []
@@ -420,7 +443,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         if not sampled_features:
             return None, None
-            
+        
         return torch.stack(sampled_features), torch.tensor(sampled_classes, device=self.device)
 
     def _apply_augmentation(self, features, class_indices):
