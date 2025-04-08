@@ -805,7 +805,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                         if sampled_features is not None and sampled_classes is not None:
                             augmented_features = self._apply_augmentation(sampled_features, sampled_classes)
                             
-                            aug_rel_pred = self.model.rel_predictor(augmented_features)
+                            aug_rel_pred = self.model.rel_classifier(augmented_features)
                             
                             if self.d_config.multi_rel:
                                 aug_gt_rel_label = torch.zeros_like(aug_rel_pred)
