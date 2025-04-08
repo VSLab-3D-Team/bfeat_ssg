@@ -194,11 +194,17 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         return weights
     
     def _initialize_replay_buffer(self):
-  
+
         import time
         import random
         
-        self.replay_buffers = {i: [] for i in range(self.num_rel_class)}
+        self.replay_buffer = {
+            'buffers': {i: [] for i in range(self.num_rel_class)},
+            'update_class_difficulty': self._update_buffer_class_difficulty,
+            'update_class_frequency': self._update_buffer_class_frequency
+        }
+        
+        self.replay_buffers = self.replay_buffer['buffers']
         
         self.total_buffer_size = 25000
         self.min_samples_per_class = 100
@@ -216,7 +222,6 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.aug_batch_ratio = 0.3  # 초기 배치 내 증강 샘플 비율
         self.aug_warmup_epochs = 5  # 증강 시작 에포크
         
-        # 증강 전략 선택 확률
         self.aug_strategy_weights = {
             'centroid': 0.4,
             'interpolation': 0.3,
@@ -233,6 +238,15 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         print("Replay buffer initialized with total size:", self.total_buffer_size)
         print("Min samples per class:", self.min_samples_per_class)
+
+    def _update_buffer_class_difficulty(self, class_accuracy):
+ 
+        # 정확도가 낮을수록 난이도가 높음
+        self.class_difficulty = 1.0 - torch.clamp(class_accuracy, min=0.0, max=0.99)
+
+    def _update_buffer_class_frequency(self, class_counts):
+
+        self.class_frequency = class_counts
 
     def _update_class_statistics(self, pred, target):
 
@@ -319,7 +333,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         return buffer_sizes
 
     def _add_to_replay_buffer(self, features, class_indices, difficulty_scores):
-        
+      
         import time
         
         buffer_sizes = self._allocate_buffer_space()
@@ -335,7 +349,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             
             if len(self.replay_buffers[cls]) >= buffer_sizes[cls] and buffer_sizes[cls] > 0:
                 self.replay_buffers[cls].sort(key=lambda x: (x['difficulty'], -x['timestamp']))
-                self.replay_buffers[cls].pop(0) 
+                self.replay_buffers[cls].pop(0)
             
             if buffer_sizes[cls] > 0:
                 self.replay_buffers[cls].append(sample)
@@ -369,7 +383,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         return random.choices(strategies, weights=weights, k=1)[0]
 
     def _sample_from_replay_buffer(self, batch_size):
-        
+      
         import random
         
         non_empty_classes = [cls for cls in range(self.num_rel_class) if len(self.replay_buffers[cls]) > 0]
@@ -855,8 +869,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     t_log += logs
                 progbar.add(1, values=t_log)
             
-            self.replay_buffer.update_class_difficulty(self.class_accuracy)
-            self.replay_buffer.update_class_frequency(class_counts)
+            self.replay_buffer['update_class_difficulty'](self.class_accuracy)
+            self.replay_buffer['update_class_frequency'](class_counts)
         
             self.lr_scheduler.step()
             if e % self.t_config.evaluation_interval == 0:
