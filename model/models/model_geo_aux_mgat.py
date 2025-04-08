@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class BFeatGeoAuxMGATNet(BaseNetwork):
-    def __init__(self, config, n_obj_cls, n_rel_cls, device):
+    def __init__(self, config, n_obj_cls, n_rel_class, device):
         super(BFeatGeoAuxMGATNet, self).__init__()
         self.config = config
         self.t_config = config.train
@@ -21,6 +21,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         if self.m_config.use_normal:
             self.dim_pts += 3
         self.device = device
+        self.num_rel_class = n_rel_class
         
         self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
         self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
@@ -110,15 +111,63 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             ).to(self.device)
         
         self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
-        self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
+        self.rel_classifier = RelationClsMulti(n_rel_class, self.m_config.dim_edge_feats).to(self.device)
+        
+        self._initialize_geo_enhancer()
+        
+        self.training_mode = True
     
-    def set_inference_mode(self): # for masking
+    def _initialize_geo_enhancer(self):
+
+        geo_feature_dim = 11
+        
+        self.relation_geo_weights = nn.Parameter(
+            torch.ones((self.num_rel_class, geo_feature_dim), device=self.device)
+        )
+        
+        nn.init.ones_(self.relation_geo_weights)
+        
+        self.relation_geo_bias = nn.Parameter(
+            torch.zeros((self.num_rel_class, geo_feature_dim), device=self.device)
+        )
+        
+        self.geo_enhancer_mlp = nn.Sequential(
+            nn.Linear(geo_feature_dim, geo_feature_dim * 2),
+            nn.ReLU(),
+            nn.Linear(geo_feature_dim * 2, geo_feature_dim)
+        ).to(self.device)
+        
+        self.intermediate_rel_classifier = nn.Sequential(
+            nn.Linear(self.m_config.dim_edge_feats, self.m_config.dim_edge_feats // 2),
+            nn.ReLU(),
+            nn.Linear(self.m_config.dim_edge_feats // 2, self.num_rel_class)
+        ).to(self.device)
+    
+    def _enhance_geometric_features(self, descriptor, rel_pred):
+     
+        batch_size = descriptor.size(0)
+        
+        weighted_features = rel_pred.unsqueeze(-1) * self.relation_geo_weights.unsqueeze(0)
+        
+        combined_weights = torch.sum(weighted_features, dim=1)
+        
+        weighted_bias = rel_pred @ self.relation_geo_bias
+        
+        enhanced_features = descriptor * combined_weights + weighted_bias
+        
+        enhanced_features = self.geo_enhancer_mlp(enhanced_features)
+        
+        return enhanced_features
+    
+    def set_inference_mode(self):
         if hasattr(self.relation_encoder, 'set_inference_mode'):
             self.relation_encoder.set_inference_mode()
+        self.training_mode = False
     
-    def set_training_mode(self): # for masking
+    def set_training_mode(self):
         if hasattr(self.relation_encoder, 'set_training_mode'):
             self.relation_encoder.set_training_mode()
+        self.training_mode = True
         
     def forward(
         self, 
@@ -130,57 +179,75 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         batch_ids=None,
         attn_weight=None,
         edge_2d_feats=None,
+        augmented_features=None
     ):
         with torch.no_grad():
             _obj_feats, _, _ = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach() # B X N_feats
         # obj_feats = self.obj_proj(obj_feats)
         
-        if not self.m_config.relation_type == "pointnet":
-            x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
-            geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
-            
-            if edge_2d_feats is not None:
-                num_edges = x_i_feats.shape[0]
-                
-                print(f"Debug - x_i_feats shape: {x_i_feats.shape}, edge_2d_feats shape: {edge_2d_feats.shape}")
-                
-                if len(edge_2d_feats.shape) == 1:
-                    edge_2d_feats = edge_2d_feats.unsqueeze(0).expand(num_edges, -1)
-                
-                elif edge_2d_feats.shape[0] != num_edges:
-                    print(f"Adjusting edge_2d_feats from shape {edge_2d_feats.shape} to match {num_edges} edges")
-                    
-                    if edge_2d_feats.shape[0] < num_edges:
-                        padded_feats = torch.zeros(num_edges, edge_2d_feats.shape[1], 
-                                                device=edge_2d_feats.device, 
-                                                dtype=edge_2d_feats.dtype)
-                        padded_feats[:edge_2d_feats.shape[0]] = edge_2d_feats
-                        edge_2d_feats = padded_feats
-                    else:
-                        edge_2d_feats = edge_2d_feats[:num_edges]
-                
-                if hasattr(self.relation_encoder, 'forward') and 'img_feats' in self.relation_encoder.forward.__code__.co_varnames:
-                    edge_feats = self.relation_encoder(
-                        x_i_feats, x_j_feats, geo_i_feats - geo_j_feats, edge_2d_feats
-                    )
-                else:
-                    e_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
-                    
-                    img_proj = getattr(self, 'img_proj', None)
-                    if img_proj is None:
-                        self.img_proj = nn.Linear(edge_2d_feats.shape[1], e_feats.shape[1]).to(e_feats.device)
-                        img_proj = self.img_proj
-                    
-                    img_feats_proj = img_proj(edge_2d_feats)
-                    
-                    edge_feats = e_feats + img_feats_proj
-            else:
-                edge_feats = self.relation_encoder(
-                    x_i_feats, x_j_feats, geo_i_feats - geo_j_feats
-                )
+        if augmented_features is not None and self.training_mode:
+            edge_feats = augmented_features
         else:
-            edge_feats = self.relation_encoder(edge_pts)
+            if not self.m_config.relation_type == "pointnet":
+                x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
+                geo_i_feats, geo_j_feats = self.index_get(descriptor, edge_indices)
+                
+                if edge_2d_feats is not None:
+                    num_edges = x_i_feats.shape[0]
+                    
+                    if len(edge_2d_feats.shape) == 1:
+                        edge_2d_feats = edge_2d_feats.unsqueeze(0).expand(num_edges, -1)
+                    
+                    elif edge_2d_feats.shape[0] != num_edges:
+                        print(f"Adjusting edge_2d_feats from shape {edge_2d_feats.shape} to match {num_edges} edges")
+                        
+                        if edge_2d_feats.shape[0] < num_edges:
+                            padded_feats = torch.zeros(num_edges, edge_2d_feats.shape[1], 
+                                                    device=edge_2d_feats.device, 
+                                                    dtype=edge_2d_feats.dtype)
+                            padded_feats[:edge_2d_feats.shape[0]] = edge_2d_feats
+                            edge_2d_feats = padded_feats
+                        else:
+                            edge_2d_feats = edge_2d_feats[:num_edges]
+                    
+                    if hasattr(self.relation_encoder, 'forward') and 'img_feats' in self.relation_encoder.forward.__code__.co_varnames:
+                        edge_feats = self.relation_encoder(
+                            x_i_feats, x_j_feats, geo_i_feats - geo_j_feats, edge_2d_feats
+                        )
+                    else:
+                        e_feats = self.relation_encoder(x_i_feats, x_j_feats, geo_i_feats - geo_j_feats)
+                        
+                        img_proj = getattr(self, 'img_proj', None)
+                        if img_proj is None:
+                            self.img_proj = nn.Linear(edge_2d_feats.shape[1], e_feats.shape[1]).to(e_feats.device)
+                            img_proj = self.img_proj
+                        
+                        img_feats_proj = img_proj(edge_2d_feats)
+                        
+                        edge_feats = e_feats + img_feats_proj
+                else:
+                    original_geo_diff = geo_i_feats - geo_j_feats
+                    
+                    if self.training_mode and hasattr(self, 'relation_geo_weights'):
+                        initial_edge_feats = self.relation_encoder(
+                            x_i_feats, x_j_feats, original_geo_diff
+                        )
+                        
+                        with torch.no_grad():
+                            intermediate_rel_pred = torch.sigmoid(self.intermediate_rel_classifier(initial_edge_feats))
+                        
+                        enhanced_geo_diff = self._enhance_geometric_features(original_geo_diff, intermediate_rel_pred)
+                        
+                        edge_feats = self.relation_encoder(
+                            x_i_feats, x_j_feats, enhanced_geo_diff
+                        )
+                    else:
+                        edge_feats = self.relation_encoder(
+                            x_i_feats, x_j_feats, original_geo_diff
+                        )
+            else:
+                edge_feats = self.relation_encoder(edge_pts)
         
         if self.m_config.gat_type == "bidirectional" and not self.m_config.use_distance_mask:
             obj_gnn_feats, edge_gnn_feats, _ = self.gat(
@@ -202,9 +269,14 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         pred_edge_clip, pred_geo_desc = \
             self.proj_clip_edge(edge_feats[edge_feat_mask, ...]), self.proj_geo_desc(edge_feats)
         
+        if 'geo_i_feats' in locals() and 'geo_j_feats' in locals():
+            geo_diff = geo_i_feats - geo_j_feats
+        else:
+            geo_diff = descriptor
+        
         return edge_feats, \
             obj_pred, \
             rel_pred, \
             pred_edge_clip, \
             pred_geo_desc, \
-            geo_i_feats - geo_j_feats
+            geo_diff

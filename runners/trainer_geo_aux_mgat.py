@@ -140,6 +140,11 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.del_meters([
             "Train/Contrastive_Loss"
         ])
+
+        self._initialize_replay_buffer()
+        
+        self.lambda_aug = getattr(self.t_config, 'lambda_aug', 1.0)
+        print(f"Augmentation loss initialization success. (Weight: {self.lambda_aug})")
         
         # Resume training if ckp path is provided.
         if 'resume' in self.config:
@@ -188,11 +193,335 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         weights = weights / weights.sum()
         return weights
     
+    def _initialize_replay_buffer(self):
+  
+        import time
+        import random
+        
+        self.replay_buffers = {i: [] for i in range(self.num_rel_class)}
+        
+        self.total_buffer_size = 25000
+        self.min_samples_per_class = 100
+        
+        self.class_difficulty = torch.ones(self.num_rel_class, device=self.device)
+        self.class_frequency = torch.zeros(self.num_rel_class, device=self.device)
+        
+        self.class_centroids = torch.zeros((self.num_rel_class, self.m_config.dim_edge_feats), device=self.device)
+        self.class_counts = torch.zeros(self.num_rel_class, device=self.device)
+        
+        self.augmentation_strength = torch.ones(self.num_rel_class, device=self.device) * 0.2
+        
+        self.confusion_matrix = torch.zeros((self.num_rel_class, self.num_rel_class), device=self.device)
+        
+        self.aug_batch_ratio = 0.3  # 초기 배치 내 증강 샘플 비율
+        self.aug_warmup_epochs = 5  # 증강 시작 에포크
+        
+        # 증강 전략 선택 확률
+        self.aug_strategy_weights = {
+            'centroid': 0.4,
+            'interpolation': 0.3,
+            'contrastive': 0.3
+        }
+        
+        self.add_meters([
+            "Train/Augmentation_Loss",
+            "Train/Original_Samples",
+            "Train/Augmented_Samples",
+            "Train/Class_Accuracy_Mean",
+            "Train/Class_Accuracy_Min"
+        ])
+        
+        print("Replay buffer initialized with total size:", self.total_buffer_size)
+        print("Min samples per class:", self.min_samples_per_class)
+
+    def _update_class_statistics(self, pred, target):
+
+        with torch.no_grad():
+            if self.d_config.multi_rel:
+                pred_cls = (pred > 0.5).float()
+                correct = (pred_cls == target).float()
+                
+                class_correct = torch.sum(correct * target, dim=0)
+                class_total = torch.sum(target, dim=0)
+                class_total = torch.max(class_total, torch.ones_like(class_total))  # 0으로 나누기 방지
+                new_accuracy = class_correct / class_total
+                
+                if not hasattr(self, 'class_accuracy'):
+                    self.class_accuracy = torch.zeros_like(new_accuracy)
+                self.class_accuracy = 0.9 * self.class_accuracy + 0.1 * new_accuracy
+                
+                for i in range(target.size(0)):
+                    true_classes = torch.where(target[i] > 0.5)[0]
+                    pred_classes = torch.where(pred[i] > 0.5)[0]
+                    
+                    for true_cls in true_classes:
+                        for pred_cls in pred_classes:
+                            if true_cls != pred_cls:
+                                self.confusion_matrix[true_cls.item(), pred_cls.item()] += 1
+            else:
+                pred_cls = torch.argmax(pred, dim=1)
+                target_cls = torch.argmax(target, dim=1)
+                
+                for c in range(self.num_rel_class):
+                    class_mask = (target_cls == c)
+                    if torch.sum(class_mask) > 0:
+                        class_correct = torch.sum((pred_cls == target_cls) & class_mask).float()
+                        class_total = torch.sum(class_mask).float()
+                        new_accuracy = class_correct / class_total
+                        
+                        if not hasattr(self, 'class_accuracy'):
+                            self.class_accuracy = torch.zeros(self.num_rel_class, device=self.device)
+                        self.class_accuracy[c] = 0.9 * self.class_accuracy[c] + 0.1 * new_accuracy.item()
+                
+                for true_cls, pred_cls in zip(target_cls, pred_cls):
+                    if true_cls.item() != pred_cls.item():
+                        self.confusion_matrix[true_cls.item(), pred_cls.item()] += 1
+            
+            if hasattr(self, 'meters') and 'Train/Class_Accuracy_Mean' in self.meters:
+                self.meters['Train/Class_Accuracy_Mean'].update(torch.mean(self.class_accuracy).item())
+                self.meters['Train/Class_Accuracy_Min'].update(torch.min(self.class_accuracy).item())
+
+    def _compute_difficulty_score(self, pred, target):
+     
+        with torch.no_grad():
+            if self.d_config.multi_rel:
+                pred_prob = pred.clone()
+                correct_class_prob = torch.sum(pred_prob * target, dim=1)
+                
+                difficulty = 1.0 - correct_class_prob
+            else:
+                pred_prob = F.softmax(pred, dim=1)
+                target_indices = torch.argmax(target, dim=1)
+                correct_class_prob = pred_prob[torch.arange(pred.size(0)), target_indices]
+                
+                difficulty = 1.0 - correct_class_prob
+            
+            return difficulty
+
+    def _allocate_buffer_space(self):
+        
+        remaining_space = self.total_buffer_size - (self.min_samples_per_class * self.num_rel_class)
+        if remaining_space < 0:
+            remaining_space = 0
+            self.min_samples_per_class = self.total_buffer_size // self.num_rel_class
+        
+        freq_factor = torch.log(torch.sum(self.class_frequency) / (self.class_frequency + 1))
+        combined_score = self.class_difficulty * freq_factor
+        
+        if torch.sum(combined_score) > 0:
+            normalized_score = combined_score / torch.sum(combined_score)
+        else:
+            normalized_score = torch.ones_like(combined_score) / self.num_rel_class
+        
+        additional_space = (normalized_score * remaining_space).int().cpu().numpy()
+        
+        buffer_sizes = {i: self.min_samples_per_class + additional_space[i] for i in range(self.num_rel_class)}
+        return buffer_sizes
+
+    def _add_to_replay_buffer(self, features, class_indices, difficulty_scores):
+        
+        import time
+        
+        buffer_sizes = self._allocate_buffer_space()
+        
+        for i, (feature, cls_idx, diff_score) in enumerate(zip(features, class_indices, difficulty_scores)):
+            cls = cls_idx.item()
+            
+            sample = {
+                'feature': feature.detach().cpu(),
+                'difficulty': diff_score.item(),
+                'timestamp': time.time()
+            }
+            
+            if len(self.replay_buffers[cls]) >= buffer_sizes[cls] and buffer_sizes[cls] > 0:
+                self.replay_buffers[cls].sort(key=lambda x: (x['difficulty'], -x['timestamp']))
+                self.replay_buffers[cls].pop(0) 
+            
+            if buffer_sizes[cls] > 0:
+                self.replay_buffers[cls].append(sample)
+
+    def _update_centroids(self, features, class_indices):
+       
+        for feat, cls_idx in zip(features, class_indices):
+            cls = cls_idx.item()
+            
+            old_count = self.class_counts[cls]
+            new_count = old_count + 1
+            
+            if old_count > 0:
+                self.class_centroids[cls] = (self.class_centroids[cls] * old_count + feat) / new_count
+            else:
+                self.class_centroids[cls] = feat
+                
+            self.class_counts[cls] = new_count
+
+    def _update_augmentation_strength(self):
+       
+        self.augmentation_strength = 0.1 + 0.2 * (1.0 - torch.clamp(self.class_accuracy, min=0.0, max=1.0))
+
+    def _select_augmentation_strategy(self):
+        
+        import random
+        
+        strategies = list(self.aug_strategy_weights.keys())
+        weights = list(self.aug_strategy_weights.values())
+        
+        return random.choices(strategies, weights=weights, k=1)[0]
+
+    def _sample_from_replay_buffer(self, batch_size):
+        
+        import random
+        
+        non_empty_classes = [cls for cls in range(self.num_rel_class) if len(self.replay_buffers[cls]) > 0]
+        
+        if len(non_empty_classes) == 0:
+            return None, None
+            
+        weights = torch.tensor([self.class_difficulty[cls].item() for cls in non_empty_classes], device=self.device)
+        weights = F.softmax(weights, dim=0)
+        
+        class_sample_counts = torch.multinomial(weights, batch_size, replacement=True)
+        class_sample_counts = {non_empty_classes[i]: count.item() for i, count in enumerate(class_sample_counts)}
+        
+        sampled_features = []
+        sampled_classes = []
+        
+        for cls, count in class_sample_counts.items():
+            if count > 0 and len(self.replay_buffers[cls]) > 0:
+                difficulties = torch.tensor([sample['difficulty'] for sample in self.replay_buffers[cls]])
+                if torch.sum(difficulties) > 0:
+                    sample_weights = difficulties / torch.sum(difficulties)
+                else:
+                    sample_weights = torch.ones_like(difficulties) / len(difficulties)
+                
+                sample_indices = torch.multinomial(
+                    sample_weights, 
+                    min(count, len(self.replay_buffers[cls])), 
+                    replacement=True
+                )
+                
+                for idx in sample_indices:
+                    sampled_features.append(self.replay_buffers[cls][idx.item()]['feature'].to(self.device))
+                    sampled_classes.append(cls)
+        
+        if not sampled_features:
+            return None, None
+            
+        return torch.stack(sampled_features), torch.tensor(sampled_classes, device=self.device)
+
+    def _apply_augmentation(self, features, class_indices):
+   
+        strategy = self._select_augmentation_strategy()
+        
+        if strategy == 'centroid':
+            return self._centroid_based_augmentation(features, class_indices)
+        elif strategy == 'interpolation':
+            return self._interpolation_based_augmentation(features, class_indices)
+        elif strategy == 'contrastive':
+            return self._contrastive_augmentation(features, class_indices)
+        else:
+            return features
+
+    def _centroid_based_augmentation(self, features, class_indices):
+       
+        augmented_features = []
+        
+        for feat, cls_idx in zip(features, class_indices):
+            cls = cls_idx.item()
+            
+            if self.class_counts[cls] > 0:
+                alpha = self.augmentation_strength[cls]
+                aug_feat = feat + alpha * (self.class_centroids[cls] - feat)
+                
+                aug_feat = F.normalize(aug_feat, p=2, dim=0)
+                augmented_features.append(aug_feat)
+            else:
+                augmented_features.append(feat)
+        
+        return torch.stack(augmented_features)
+
+    def _interpolation_based_augmentation(self, features, class_indices):
+    
+        import random
+        
+        class_features = {i: [] for i in range(self.num_rel_class)}
+        for feat, cls_idx in zip(features, class_indices):
+            cls = cls_idx.item()
+            class_features[cls].append(feat)
+        
+        augmented_features = []
+        
+        for feat, cls_idx in zip(features, class_indices):
+            cls = cls_idx.item()
+            
+            if len(class_features[cls]) > 1:
+                other_feats = [f for f in class_features[cls] if not torch.equal(f, feat)]
+                if other_feats:
+                    other_feat = random.choice(other_feats)
+                    
+                    lambda_val = torch.rand(1, device=self.device).item() * self.augmentation_strength[cls]
+                    aug_feat = feat + lambda_val * (other_feat - feat)
+                    
+                    aug_feat = F.normalize(aug_feat, p=2, dim=0)
+                    augmented_features.append(aug_feat)
+                else:
+                    augmented_features.append(feat)
+            else:
+                if self.class_counts[cls] > 0:
+                    alpha = self.augmentation_strength[cls]
+                    aug_feat = feat + alpha * (self.class_centroids[cls] - feat)
+                    aug_feat = F.normalize(aug_feat, p=2, dim=0)
+                    augmented_features.append(aug_feat)
+                else:
+                    augmented_features.append(feat)
+        
+        return torch.stack(augmented_features)
+
+    def _contrastive_augmentation(self, features, class_indices):
+
+        augmented_features = []
+        
+        for feat, cls_idx in zip(features, class_indices):
+            cls = cls_idx.item()
+            
+            if hasattr(self, 'confusion_matrix'):
+                confusion_row = self.confusion_matrix[cls].clone()
+                confusion_row[cls] = 0
+                most_confused_cls = torch.argmax(confusion_row).item()
+                
+                if self.class_counts[cls] > 0 and self.class_counts[most_confused_cls] > 0:
+                    beta = self.augmentation_strength[cls] * 1.5 
+                    centroid_diff = self.class_centroids[cls] - self.class_centroids[most_confused_cls]
+                    aug_feat = feat + beta * centroid_diff
+                    
+                    aug_feat = F.normalize(aug_feat, p=2, dim=0)
+                    augmented_features.append(aug_feat)
+                else:
+                    if self.class_counts[cls] > 0:
+                        alpha = self.augmentation_strength[cls]
+                        aug_feat = feat + alpha * (self.class_centroids[cls] - feat)
+                        aug_feat = F.normalize(aug_feat, p=2, dim=0)
+                        augmented_features.append(aug_feat)
+                    else:
+                        augmented_features.append(feat)
+            else:
+                if self.class_counts[cls] > 0:
+                    alpha = self.augmentation_strength[cls]
+                    aug_feat = feat + alpha * (self.class_centroids[cls] - feat)
+                    aug_feat = F.normalize(aug_feat, p=2, dim=0)
+                    augmented_features.append(aug_feat)
+                else:
+                    augmented_features.append(feat)
+        
+        return torch.stack(augmented_features)
+    
     def train(self):
 
         self.model = self.model.train()
         n_iters = len(self.t_dataloader)
         val_metric = -987654321
+
+        class_counts = torch.zeros(self.num_rel_class, device=self.device)
         
         # Training Loop
         for e in range(self.t_config.epoch):
@@ -200,6 +529,10 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/epo', 'Misc/it'])
             self.model = self.model.train()
             loader = iter(self.t_dataloader)
+
+            if e >= self.aug_warmup_epochs:
+                progress = min(1.0, (e - self.aug_warmup_epochs) / (self.t_config.epoch - self.aug_warmup_epochs))
+                self.aug_batch_ratio = 0.3 + 0.2 * progress
             
             for idx, (
                 obj_pts, 
@@ -242,6 +575,31 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                         descriptor, edge_feat_mask, batch_ids, attn_tfidf_weight,
                         edge_2d_feats
                     )
+                
+                if self.d_config.multi_rel:
+                    batch_class_counts = torch.sum(gt_rel_label, dim=0)
+                else:
+                    batch_class_counts = torch.bincount(
+                        torch.argmax(gt_rel_label, dim=1), 
+                        minlength=self.num_rel_class
+                    )
+                class_counts += batch_class_counts
+                
+                self._update_class_statistics(rel_pred, gt_rel_label)
+                
+                difficulty_scores = self._compute_difficulty_score(rel_pred, gt_rel_label)
+                
+                if self.d_config.multi_rel:
+                    rel_classes = torch.argmax(gt_rel_label, dim=1)
+                else:
+                    rel_classes = torch.argmax(gt_rel_label, dim=1)
+                
+                self._add_to_replay_buffer(edge_feats, rel_classes, difficulty_scores)
+                
+                self._update_centroids(edge_feats, rel_classes)
+                
+                self._update_augmentation_strength()
+
                 rel_weight = self.__dynamic_rel_weight(gt_rel_label)
                 obj_weight = self.__dynamic_obj_weight(gt_obj_label).to(self.device)
                 c_obj_loss = F.cross_entropy(obj_pred, gt_obj_label, weight=obj_weight)
@@ -401,6 +759,35 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                         print(f"Error during calculate edge_text_aux_loss: {str(e)}")
                         edge_text_aux_loss = torch.tensor(0.0, device=self.device)
 
+                aug_loss = torch.tensor(0.0, device=self.device)
+                if e >= self.aug_warmup_epochs:
+                    aug_batch_size = int(edge_feats.size(0) * self.aug_batch_ratio)
+                    if aug_batch_size > 0:
+                        sampled_features, sampled_classes = self._sample_from_replay_buffer(aug_batch_size)
+                        
+                        if sampled_features is not None and sampled_classes is not None:
+                            augmented_features = self._apply_augmentation(sampled_features, sampled_classes)
+                            
+                            aug_rel_pred = self.model.rel_predictor(augmented_features)
+                            
+                            if self.d_config.multi_rel:
+                                aug_gt_rel_label = torch.zeros_like(aug_rel_pred)
+                                for i, cls in enumerate(sampled_classes):
+                                    aug_gt_rel_label[i, cls] = 1.0
+                            else:
+                                aug_gt_rel_label = F.one_hot(sampled_classes, num_classes=self.num_rel_class).float()
+                            
+                            aug_rel_weight = self.__dynamic_rel_weight(aug_gt_rel_label)
+                            aug_rel_loss = F.binary_cross_entropy(aug_rel_pred, aug_gt_rel_label, weight=aug_rel_weight)
+                            
+                            aug_weight = min(1.0, (e - self.aug_warmup_epochs + 1) / 10.0)
+                            aug_loss = aug_rel_loss * aug_weight
+                            
+                            self.meters['Train/Augmented_Samples'].update(aug_batch_size)
+                            self.meters['Train/Augmentation_Loss'].update(aug_loss.detach().item())
+
+                self.meters['Train/Original_Samples'].update(edge_feats.size(0))
+
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
@@ -411,6 +798,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 lambda_t_a = self.t_config.lambda_text_aux
                 # lambda_c = self.t_config.lambda_con # 0.1
                 # + lambda_c * contrastive_loss \
+
+                lambda_aug = self.lambda_aug if hasattr(self, 'lambda_aug') else 1.0
                     
                 # Geo Aux: 0.3 or 1.0
                 t_loss = lambda_o * c_obj_loss \
@@ -419,7 +808,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     + lambda_v * edge_clip_aux_loss \
                     + lambda_t * triplet_loss \
                     + lambda_e * edge_text_loss \
-                    + lambda_t_a * edge_text_aux_loss
+                    + lambda_t_a * edge_text_aux_loss \
+                    + lambda_aug * aug_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -428,14 +818,20 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 # self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
                 self.meters['Train/Geo_Aux_Loss'].update(geo_aux_loss.detach().item()) 
                 self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
-                self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
-                self.meters['Train/Edge_Text_Loss'].update(edge_text_loss.detach().item())
-                self.meters['Train/Edge_Text_Aux_Loss'].update(edge_text_aux_loss.detach().item())
+                if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
+                    self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
+                if hasattr(self, 'use_edge_loss') and self.use_edge_loss:
+                    self.meters['Train/Edge_Text_Loss'].update(edge_text_loss.detach().item())
+                if hasattr(self, 'use_text_aux_loss') and self.use_text_aux_loss:
+                    self.meters['Train/Edge_Text_Aux_Loss'].update(edge_text_aux_loss.detach().item())
+                
+                self.meters['Train/Augmentation_Loss'].update(aug_loss.detach().item())
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
                     # ("train/contrastive_loss", contrastive_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
+                    ("train/aug_loss", aug_loss.detach().item()),
                 ]
                 
                 if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
@@ -450,14 +846,18 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 t_log += [
                     ("Misc/epo", int(e)),
                     ("Misc/it", int(idx)),
-                    ("lr", self.lr_scheduler.get_last_lr()[0])
+                    ("lr", self.lr_scheduler.get_last_lr()[0]),
+                    ("aug_ratio", self.aug_batch_ratio)
                 ]
                 
                 if e % self.t_config.log_interval == 0:
                     logs = self.evaluate_train(obj_pred, gt_obj_label, rel_pred, gt_rel_label, edge_indices)
                     t_log += logs
                 progbar.add(1, values=t_log)
-                
+            
+            self.replay_buffer.update_class_difficulty(self.class_accuracy)
+            self.replay_buffer.update_class_frequency(class_counts)
+        
             self.lr_scheduler.step()
             if e % self.t_config.evaluation_interval == 0:
                 mRecall_50 = self.evaluate_validation()
@@ -468,12 +868,20 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))
             
             self.wandb_log["Train/learning_rate"] = self.lr_scheduler.get_last_lr()[0]
+            self.wandb_log["Train/Augmentation_Loss"] = self.meters['Train/Augmentation_Loss'].avg
+            self.wandb_log["Train/Original_Samples"] = self.meters['Train/Original_Samples'].avg
+            self.wandb_log["Train/Augmented_Samples"] = self.meters['Train/Augmented_Samples'].avg
+            self.wandb_log["Train/Augmentation_Ratio"] = self.aug_batch_ratio
+            self.wandb_log["Train/Class_Accuracy_Mean"] = self.meters['Train/Class_Accuracy_Mean'].avg
+            self.wandb_log["Train/Class_Accuracy_Min"] = self.meters['Train/Class_Accuracy_Min'].avg
+            
             if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                 self.wandb_log["Train/Triplet_Loss"] = self.meters['Train/Triplet_Loss'].avg
             if hasattr(self, 'use_edge_loss') and self.use_edge_loss:
                 self.wandb_log["Train/Edge_Text_Loss"] = self.meters['Train/Edge_Text_Loss'].avg
             if hasattr(self, 'use_text_aux_loss') and self.use_text_aux_loss:
                 self.wandb_log["Train/Edge_Text_Aux_Loss"] = self.meters['Train/Edge_Text_Aux_Loss'].avg
+            
             self.write_wandb_log()
             wandb.log(self.wandb_log)
     
