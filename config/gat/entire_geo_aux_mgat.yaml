@@ -13,8 +13,8 @@ dataset:
 train:
   ckp_path: ./model_checkpoints/obj_encoder.pth
   name: GAT
-  epoch: 100
-  log_interval: 100
+  epoch: 50
+  log_interval: 50
   evaluation_interval: 1
   save_interval: 1
   batch_size: 8
