@@ -54,7 +54,7 @@ model:
   num_layers: 8
   relation_type: "resnet" # rel encoder type
   edge_attention: false
-  gat_type: "bidirectional" # gat type
+  gat_type: "dual" # gat type
   use_distance_mask: true
 
 optimizer:

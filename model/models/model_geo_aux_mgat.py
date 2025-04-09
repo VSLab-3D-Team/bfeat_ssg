@@ -1,6 +1,6 @@
 from model.frontend.pointnet import PointNetEncoder
 from model.backend.gat import BFeatVanillaGAT
-from model.backend.m_gat import BidirectionalEdgeGraphNetwork
+from model.backend.m_gat import BidirectionalEdgeGraphNetwork, DualGATNetwork
 from model.frontend.relextractor import *
 from model.backend.classifier import RelationClsMulti, ObjectClsMulti
 from model.models.baseline import BaseNetwork
@@ -8,7 +8,6 @@ from utils.model_utils import Gen_Index, build_mlp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.backend.m_gat import DualGATNetwork  # 이중 GAT 네트워크 임포트
 
 class BFeatGeoAuxMGATNet(BaseNetwork):
     def __init__(self, config, n_obj_cls, n_rel_cls, device):
@@ -29,6 +28,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
 
         self.index_get = Gen_Index(flow=self.m_config.flow)
         assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
+
         if self.m_config.relation_type == "pointnet":
             self.relation_encoder = RelFeatPointExtractor(
                 config, device
@@ -94,6 +94,13 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
                 DROP_OUT_ATTEN=self.t_config.drop_out,
                 use_bn=True
             )
+            
+            self.sem_obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(device)
+            self.sem_rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(device)
+            
+            self.geo_obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(device)
+            self.geo_rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(device)
+
         elif self.m_config.gat_type == "bidirectional":
             self.gat = BidirectionalEdgeGraphNetwork(
                 dim_node=self.m_config.dim_obj_feats,
@@ -119,16 +126,6 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         
         self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
         self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
-        
-        # 역할 특화 손실을 위한 손실 함수 추가
-        self.role_specific_loss = RoleSpecificLoss(
-            obj_label_list=self.obj_label_list,
-            rel_label_list=self.rel_label_list,
-            dim_geo=11,  # 기하학적 정보의 차원
-            device=device,
-            lambda_sem=getattr(self.t_config, 'lambda_sem', 0.5),
-            lambda_geo=getattr(self.t_config, 'lambda_geo', 0.5)
-        ).to(device)
 
     def set_inference_mode(self): # for masking
         if hasattr(self.relation_encoder, 'set_inference_mode'):
@@ -197,11 +194,24 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         else:
             edge_feats = self.relation_encoder(edge_pts)
         
-        # GAT 타입에 따른 처리
         if self.m_config.gat_type == "dual":
-            obj_gnn_feats, edge_gnn_feats, _ = self.gat(
+            obj_gnn_feats, edge_gnn_feats, _, gat_individual_feats = self.gat(
                 obj_feats, edge_feats, edge_indices, descriptor
             )
+            
+            node_feature_s, edge_feature_s, node_feature_g, edge_feature_g = gat_individual_feats
+            
+            sem_obj_pred = self.sem_obj_classifier(node_feature_s)
+            sem_rel_pred = self.sem_rel_classifier(edge_feature_s)
+            
+            geo_obj_pred = self.geo_obj_classifier(node_feature_g)
+            geo_rel_pred = self.geo_rel_classifier(edge_feature_g)
+            
+            obj_pred = self.obj_classifier(obj_gnn_feats)
+            rel_pred = self.rel_classifier(edge_gnn_feats)
+            
+            self.all_obj_preds = (sem_obj_pred, geo_obj_pred, obj_pred)
+            self.all_rel_preds = (sem_rel_pred, geo_rel_pred, rel_pred)
         elif self.m_config.gat_type == "bidirectional" and not self.m_config.use_distance_mask:
             obj_gnn_feats, edge_gnn_feats, _ = self.gat(
                 obj_feats, edge_feats, edge_indices
@@ -210,14 +220,20 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             obj_gnn_feats, edge_gnn_feats, _ = self.gat(
                 obj_feats, edge_feats, edge_indices, descriptor
             )
+            # 기존 방식과 호환성을 위해
+            self.all_obj_preds = (obj_pred, obj_pred, obj_pred)
+            self.all_rel_preds = (rel_pred, rel_pred, rel_pred)
         else:
             obj_center = descriptor[:, :3].clone()
             obj_gnn_feats, edge_gnn_feats = self.gat(
                 obj_feats, edge_feats, edge_indices, batch_ids, obj_center, attn_weight
             )
+            # 기존 방식과 호환성을 위해
+            self.all_obj_preds = (obj_pred, obj_pred, obj_pred)
+            self.all_rel_preds = (rel_pred, rel_pred, rel_pred)
         
-        obj_pred = self.obj_classifier(obj_gnn_feats)
-        rel_pred = self.rel_classifier(edge_gnn_feats)
+        # obj_pred = self.obj_classifier(obj_gnn_feats)
+        # rel_pred = self.rel_classifier(edge_gnn_feats)
         
         pred_edge_clip, pred_geo_desc = \
             self.proj_clip_edge(edge_feats[edge_feat_mask, ...]), self.proj_geo_desc(edge_feats)

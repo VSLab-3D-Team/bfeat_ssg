@@ -55,7 +55,6 @@ class TripletProjector(nn.Module):
         return self.proj(combined)
 
 class RoleSpecificLoss(nn.Module):
-    """각 GAT의 역할 특화를 위한 손실 함수"""
     def __init__(self, obj_label_list, rel_label_list, dim_geo=11, device="cuda", lambda_sem=0.5, lambda_geo=0.5):
         super().__init__()
         self.lambda_sem = lambda_sem
@@ -64,13 +63,10 @@ class RoleSpecificLoss(nn.Module):
         self.rel_label_list = rel_label_list
         self.device = device
         
-        # 기하학적 특징 프로젝터
         self.geo_projector = build_mlp([dim_geo, 64, 128], do_bn=True)
         
-        # 의미론적 특징 프로젝터
         self.sem_projector = build_mlp([512, 256, 128], do_bn=True)
         
-        # CLIP 텍스트 인코더
         try:
             self.clip_text_encoder = CLIPTextEncoder(device=device).to(device)
             self._text_embeddings_cache = {}
@@ -79,7 +75,6 @@ class RoleSpecificLoss(nn.Module):
             self.clip_text_encoder = None
         
     def _get_text_embedding(self, text_template, fill_values):
-        """CLIP 텍스트 임베딩 가져오기"""
         if self.clip_text_encoder is None:
             return torch.ones(1, 512, device=self.device)
             
@@ -95,82 +90,68 @@ class RoleSpecificLoss(nn.Module):
             
         return embedding
     
-    def forward(self, sem_feat, geo_feat, obj_pred, rel_pred, edge_indices, geo_desc):
-        """
-        sem_feat: 의미론적 GAT의 특징
-        geo_feat: 기하학적 GAT의 특징
-        obj_pred: 객체 분류 예측 (softmax 적용 전)
-        rel_pred: 관계 분류 예측
-        edge_indices: 에지 인덱스 [E, 2]
-        geo_desc: 기하학적 특징 (11차원)
-        """
-        batch_size = min(64, edge_indices.shape[0])  # 배치 크기 제한
+    def forward(self, sem_node_feat, sem_edge_feat, geo_node_feat, geo_edge_feat, obj_pred, rel_pred, edge_indices, geo_desc):
+        
+        batch_size = min(64, edge_indices.shape[0])
         if batch_size == 0:
-            return torch.tensor(0.0, device=self.device)
-            
-        # 샘플링
+            return torch.tensor(0.0, device=self.device), torch.tensor(0.0, device=self.device)
+        
         sample_indices = torch.randperm(edge_indices.shape[0])[:batch_size]
         sampled_edges = edge_indices[sample_indices]
-        
-        # 객체 및 관계 예측값 가져오기
-        obj_pred_softmax = F.softmax(obj_pred, dim=1)
-        rel_pred_softmax = rel_pred
         
         subject_indices = sampled_edges[:, 0]
         object_indices = sampled_edges[:, 1]
         
-        subject_cls_pred = obj_pred_softmax[subject_indices]
-        object_cls_pred = obj_pred_softmax[object_indices]
-        relation_cls_pred = rel_pred_softmax[sample_indices]
-        
-        subject_cls_idx = subject_cls_pred.argmax(dim=1)
-        object_cls_idx = object_cls_pred.argmax(dim=1)
-        relation_cls_idx = relation_cls_pred.argmax(dim=1)
-        
-        # 의미론적 손실
         sem_loss = 0.0
         if self.clip_text_encoder is not None:
+            obj_pred_softmax = F.softmax(obj_pred, dim=1)
+            rel_pred_softmax = rel_pred
+            
+            subject_cls_pred = obj_pred_softmax[subject_indices]
+            object_cls_pred = obj_pred_softmax[object_indices]
+            relation_cls_pred = rel_pred_softmax[sample_indices]
+            
+            subject_cls_idx = subject_cls_pred.argmax(dim=1)
+            object_cls_idx = object_cls_pred.argmax(dim=1)
+            relation_cls_idx = relation_cls_pred.argmax(dim=1)
+            
             for i in range(batch_size):
                 subject_name = self.obj_label_list[subject_cls_idx[i]]
                 object_name = self.obj_label_list[object_cls_idx[i]]
                 relation_name = self.rel_label_list[relation_cls_idx[i]]
                 
-                # CLIP 텍스트 임베딩 가져오기
                 text_emb = self._get_text_embedding(
                     "a point cloud of a {subj} {pred} a {obj}", 
                     {"subj": subject_name, "pred": relation_name, "obj": object_name}
                 )
                 
-                # 의미론적 특징 프로젝션
-                sem_node_i = sem_feat[subject_indices[i]].unsqueeze(0)
-                sem_node_j = sem_feat[object_indices[i]].unsqueeze(0)
-                sem_combined = torch.cat([sem_node_i, sem_node_j], dim=1)
+                sem_node_i = sem_node_feat[subject_indices[i]].unsqueeze(0)
+                sem_node_j = sem_node_feat[object_indices[i]].unsqueeze(0)
+                sem_edge_ij = sem_edge_feat[sample_indices[i]].unsqueeze(0)
+                
+                sem_combined = torch.cat([sem_node_i, sem_edge_ij, sem_node_j], dim=1)
                 sem_projected = self.sem_projector(sem_combined)
                 
-                # 코사인 유사도 손실
                 sem_loss += (1 - F.cosine_similarity(sem_projected, text_emb)).mean()
             
             sem_loss = sem_loss / batch_size
         
-        # 기하학적 손실
         geo_loss = 0.0
         for i in range(batch_size):
-            # 기하학적 특징 가져오기
-            geo_node_i = geo_feat[subject_indices[i]].unsqueeze(0)
-            geo_node_j = geo_feat[object_indices[i]].unsqueeze(0)
-            geo_combined = torch.cat([geo_node_i, geo_node_j], dim=1)
+            geo_node_i = geo_node_feat[subject_indices[i]].unsqueeze(0)
+            geo_node_j = geo_node_feat[object_indices[i]].unsqueeze(0)
+            geo_edge_ij = geo_edge_feat[sample_indices[i]].unsqueeze(0)
             
-            # 기하학적 참조 특징 (11차원)
+            geo_combined = torch.cat([geo_node_i, geo_edge_ij, geo_node_j], dim=1)
+            
             geo_reference = geo_desc[sample_indices[i]].unsqueeze(0)
             geo_projected = self.geo_projector(geo_reference)
             
-            # L2 손실
             geo_loss += F.mse_loss(geo_combined, geo_projected)
         
         geo_loss = geo_loss / batch_size
         
-        # 최종 손실
-        return self.lambda_sem * sem_loss + self.lambda_geo * geo_loss
+        return sem_loss, geo_loss
 
 class BFeatGeoAuxMGATTrainer(BaseTrainer):
     def __init__(self, config, device):
@@ -208,15 +189,23 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
         self.w_edge = TFIDFTripletWeight(self.num_obj_class, self.num_rel_class, self.device)
         
-        # 역할 특화 손실 함수 초기화
         self.role_specific_loss = RoleSpecificLoss(
             obj_label_list=self.obj_label_list,
             rel_label_list=self.rel_label_list,
-            dim_geo=11,  # 기하학적 정보의 차원
+            dim_geo=11,
             device=device,
             lambda_sem=getattr(self.t_config, 'lambda_sem', 0.5),
             lambda_geo=getattr(self.t_config, 'lambda_geo', 0.5)
         ).to(device)
+
+        self.add_meters([
+            "Train/Semantic_Obj_Loss",
+            "Train/Semantic_Rel_Loss",
+            "Train/Geometric_Obj_Loss",
+            "Train/Geometric_Rel_Loss",
+            "Train/Semantic_Role_Loss",
+            "Train/Geometric_Role_Loss"
+        ])
         
         try:
             self.clip_text_encoder = CLIPTextEncoder(device=device).to(device)
@@ -383,6 +372,35 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 
                 geo_aux_loss = F.l1_loss(pred_geo_desc, edge_desc)
                 edge_clip_aux_loss = self.cosine_loss(pred_edge_clip, edge_2d_feats)
+
+                sem_obj_loss = torch.tensor(0.0, device=self.device)
+                sem_rel_loss = torch.tensor(0.0, device=self.device)
+                geo_obj_loss = torch.tensor(0.0, device=self.device)
+                geo_rel_loss = torch.tensor(0.0, device=self.device)
+                sem_role_loss = torch.tensor(0.0, device=self.device)
+                geo_role_loss = torch.tensor(0.0, device=self.device)
+                
+                if self.m_config.gat_type == "dual":
+                    sem_obj_pred, geo_obj_pred, _ = self.model.all_obj_preds
+                    sem_rel_pred, geo_rel_pred, _ = self.model.all_rel_preds
+                    
+                    sem_obj_loss = F.cross_entropy(sem_obj_pred, gt_obj_label, weight=obj_weight)
+                    sem_rel_loss = F.binary_cross_entropy(sem_rel_pred, gt_rel_label, weight=rel_weight)
+                    
+                    geo_obj_loss = F.cross_entropy(geo_obj_pred, gt_obj_label, weight=obj_weight)
+                    geo_rel_loss = F.binary_cross_entropy(geo_rel_pred, gt_rel_label, weight=rel_weight)
+                    
+                    if hasattr(self.model.gat, 'node_feature_s') and hasattr(self.model.gat, 'node_feature_g'):
+                        sem_node_feat = self.model.gat.node_feature_s
+                        sem_edge_feat = self.model.gat.edge_feature_s
+                        geo_node_feat = self.model.gat.node_feature_g
+                        geo_edge_feat = self.model.gat.edge_feature_g
+                        
+                        sem_role_loss, geo_role_loss = self.role_specific_loss(
+                            sem_node_feat, sem_edge_feat, 
+                            geo_node_feat, geo_edge_feat,
+                            obj_pred, rel_pred, edge_indices, edge_desc
+                        )
                 
                 triplet_loss = torch.tensor(0.0, device=self.device)
                 edge_text_loss = torch.tensor(0.0, device=self.device)
@@ -533,19 +551,6 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                         print(f"Error during calculate edge_text_aux_loss: {str(e)}")
                         edge_text_aux_loss = torch.tensor(0.0, device=self.device)
 
-                # 역할 특화 손실 계산
-                role_specific_loss = torch.tensor(0.0, device=self.device)
-                if self.m_config.gat_type == "dual" and hasattr(self.model.gat, 'node_feature_s') and hasattr(self.model.gat, 'node_feature_g'):
-                    sem_node_feat = self.model.gat.node_feature_s
-                    geo_node_feat = self.model.gat.node_feature_g
-                    
-                    # CLIP 임베딩과 기하학적 임베딩
-                    if edge_2d_feats is not None:
-                        clip_embed = F.normalize(edge_2d_feats, p=2, dim=1)
-                        role_specific_loss = self.role_specific_loss(
-                            sem_node_feat, geo_node_feat, obj_pred, rel_pred, edge_indices, edge_desc
-                        )
-
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
@@ -556,6 +561,13 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 lambda_t_a = self.t_config.lambda_text_aux
                 # lambda_c = self.t_config.lambda_con # 0.1
                 # + lambda_c * contrastive_loss \
+
+                lambda_sem_obj = getattr(self.t_config, 'lambda_sem_obj', 0.3)
+                lambda_sem_rel = getattr(self.t_config, 'lambda_sem_rel', 0.3)
+                lambda_geo_obj = getattr(self.t_config, 'lambda_geo_obj', 0.3)
+                lambda_geo_rel = getattr(self.t_config, 'lambda_geo_rel', 0.3)
+                lambda_sem_role = getattr(self.t_config, 'lambda_sem_role', 0.5)
+                lambda_geo_role = getattr(self.t_config, 'lambda_geo_role', 0.5)
                     
                 # Geo Aux: 0.3 or 1.0
                 t_loss = lambda_o * c_obj_loss \
@@ -565,7 +577,13 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     + lambda_t * triplet_loss \
                     + lambda_e * edge_text_loss \
                     + lambda_t_a * edge_text_aux_loss \
-                    + self.t_config.lambda_role * role_specific_loss
+                    + lambda_sem_obj * sem_obj_loss \
+                    + lambda_sem_rel * sem_rel_loss \
+                    + lambda_geo_obj * geo_obj_loss \
+                    + lambda_geo_rel * geo_rel_loss \
+                    + lambda_sem_role * sem_role_loss \
+                    + lambda_geo_role * geo_role_loss
+                
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -577,7 +595,14 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
                 self.meters['Train/Edge_Text_Loss'].update(edge_text_loss.detach().item())
                 self.meters['Train/Edge_Text_Aux_Loss'].update(edge_text_aux_loss.detach().item())
-                self.meters['Train/Role_Specific_Loss'].update(role_specific_loss.detach().item())
+
+                self.meters['Train/Semantic_Obj_Loss'].update(sem_obj_loss.detach().item())
+                self.meters['Train/Semantic_Rel_Loss'].update(sem_rel_loss.detach().item())
+                self.meters['Train/Geometric_Obj_Loss'].update(geo_obj_loss.detach().item())
+                self.meters['Train/Geometric_Rel_Loss'].update(geo_rel_loss.detach().item())
+                self.meters['Train/Semantic_Role_Loss'].update(sem_role_loss.detach().item())
+                self.meters['Train/Geometric_Role_Loss'].update(geo_role_loss.detach().item())
+
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),
@@ -675,6 +700,22 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids, None,  # attn_tfidf_weight
                     edge_2d_feats
                 )
+                
+                if self.m_config.gat_type == "dual" and hasattr(self.model, 'all_obj_preds') and hasattr(self.model, 'all_rel_preds'):
+                    sem_obj_pred, geo_obj_pred, final_obj_pred = self.model.all_obj_preds
+                    sem_rel_pred, geo_rel_pred, final_rel_pred = self.model.all_rel_preds
+                    
+                    obj_weights = [0.3, 0.3, 0.4]  # 의미론적, 기하학적, 통합 가중치
+                    rel_weights = [0.3, 0.3, 0.4]
+                    
+                    obj_pred = obj_weights[0] * sem_obj_pred + \
+                            obj_weights[1] * geo_obj_pred + \
+                            obj_weights[2] * final_obj_pred
+                    
+                    rel_pred = rel_weights[0] * sem_rel_pred + \
+                            rel_weights[1] * geo_rel_pred + \
+                            rel_weights[2] * final_rel_pred
+                
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
@@ -711,6 +752,20 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     ("Acc@50/triplet_acc", (topk_triplet_list <= 50).sum() * 100 / len(topk_triplet_list)),
                     ("Acc@100/triplet_acc", (topk_triplet_list <= 100).sum() * 100 / len(topk_triplet_list))
                 ]
+
+                if self.m_config.gat_type == "dual" and hasattr(self.model, 'all_obj_preds') and hasattr(self.model, 'all_rel_preds'):
+                    sem_top_k_obj = evaluate_topk_object(sem_obj_pred.detach(), gt_obj_label, topk=11)
+                    sem_top_k_rel = evaluate_topk_predicate(sem_rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
+                    
+                    geo_top_k_obj = evaluate_topk_object(geo_obj_pred.detach(), gt_obj_label, topk=11)
+                    geo_top_k_rel = evaluate_topk_predicate(geo_rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
+                    
+                    logs += [
+                        ("Sem/Acc@1/obj", (sem_top_k_obj <= 1).sum() * 100 / len(sem_top_k_obj)),
+                        ("Sem/Acc@1/rel", (sem_top_k_rel <= 1).sum() * 100 / len(sem_top_k_rel)),
+                        ("Geo/Acc@1/obj", (geo_top_k_obj <= 1).sum() * 100 / len(geo_top_k_obj)),
+                        ("Geo/Acc@1/rel", (geo_top_k_rel <= 1).sum() * 100 / len(geo_top_k_rel))
+                    ]
 
                 progbar.add(1, values=logs)
             
@@ -794,11 +849,26 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             self.wandb_log["Validation/Acc@1/obj_cls_acc_mean"] =  obj_acc_mean_1
             self.wandb_log["Validation/Acc@5/obj_cls_acc_mean"] =  obj_acc_mean_5
             self.wandb_log["Validation/Acc@10/obj_cls_acc_mean"] =  obj_acc_mean_10
+            
+            if self.m_config.gat_type == "dual" and len(loader) > 0:
+                sem_obj_acc_1 = (sem_top_k_obj <= 1).sum() * 100 / len(sem_top_k_obj)
+                sem_rel_acc_1 = (sem_top_k_rel <= 1).sum() * 100 / len(sem_top_k_rel)
+                geo_obj_acc_1 = (geo_top_k_obj <= 1).sum() * 100 / len(geo_top_k_obj)
+                geo_rel_acc_1 = (geo_top_k_rel <= 1).sum() * 100 / len(geo_top_k_rel)
+                
+                self.wandb_log["Validation/Semantic_Obj_Acc@1"] = sem_obj_acc_1
+                self.wandb_log["Validation/Semantic_Rel_Acc@1"] = sem_rel_acc_1
+                self.wandb_log["Validation/Geometric_Obj_Acc@1"] = geo_obj_acc_1
+                self.wandb_log["Validation/Geometric_Rel_Acc@1"] = geo_rel_acc_1
+                
+                # 두 GAT 간의 성능 차이
+                self.wandb_log["Analysis/Role_Divergence_Obj"] = abs(sem_obj_acc_1 - geo_obj_acc_1)
+                self.wandb_log["Analysis/Role_Divergence_Rel"] = abs(sem_rel_acc_1 - geo_rel_acc_1)
 
         # if hasattr(self.model, 'set_training_mode'):
         #     self.model.set_training_mode()
 
-        return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5 
+        return (obj_acc_1 + rel_acc_1 + rel_acc_mean_1 + mean_recall[0] + triplet_acc_50) / 5
     
 
 # print("Obj pts Shape:", obj_pts.shape)

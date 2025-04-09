@@ -676,35 +676,29 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
 #         return node_feature, edge_feature, probs
 
 class SemanticEnhancer(nn.Module):
-    """의미론적 특성을 강화하는 레이어"""
     def __init__(self, dim_node: int, dim_edge: int):
         super().__init__()
         self.node_enhancer = build_mlp([dim_node, dim_node * 2, dim_node], do_bn=True)
         self.edge_enhancer = build_mlp([dim_edge, dim_edge * 2, dim_edge], do_bn=True)
         
     def forward(self, node_features, edge_features):
-        """의미론적 측면을 강화한 특징 반환"""
         enhanced_nodes = self.node_enhancer(node_features)
         enhanced_edges = self.edge_enhancer(edge_features)
         return enhanced_nodes, enhanced_edges
 
 class GeometricEnhancer(nn.Module):
-    """기하학적 특성을 강화하는 레이어"""
     def __init__(self, dim_node: int, dim_edge: int, dim_geo: int = 11):
         super().__init__()
         self.node_enhancer = build_mlp([dim_node, dim_node * 2, dim_node], do_bn=True)
         self.edge_enhancer = build_mlp([dim_edge + dim_geo, dim_edge * 2, dim_edge], do_bn=True)
         
     def forward(self, node_features, edge_features, geo_features):
-        """기하학적 측면을 강화한 특징 반환"""
         enhanced_nodes = self.node_enhancer(node_features)
-        # 기하학적 정보와 에지 특징 결합
         edge_with_geo = torch.cat([edge_features, geo_features], dim=1)
         enhanced_edges = self.edge_enhancer(edge_with_geo)
         return enhanced_nodes, enhanced_edges
 
 class CrossAttention(nn.Module):
-    """두 GAT 간의 교차 어텐션 계산"""
     def __init__(self, dim_feat: int, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.num_heads = num_heads
@@ -722,12 +716,10 @@ class CrossAttention(nn.Module):
     def forward(self, query, key, value, attn_mask=None):
         batch_size = query.size(0)
         
-        # 선형 투영 및 헤드 분할
         q = self.q_proj(query).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         k = self.k_proj(key).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(value).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         
-        # 어텐션 점수 계산
         attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scale
         
         if attn_mask is not None:
@@ -736,32 +728,25 @@ class CrossAttention(nn.Module):
         attn_weights = F.softmax(attn_weights, dim=-1)
         attn_weights = self.dropout(attn_weights)
         
-        # 값 가중 합산
         attn_output = torch.matmul(attn_weights, v)
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, -1, self.num_heads * self.head_dim)
         
-        # 최종 투영
         output = self.out_proj(attn_output)
         
         return output
 
 class AdaptiveGate(nn.Module):
-    """교차 정보의 영향력을 동적으로 조절하는 게이트"""
     def __init__(self, dim_feat: int):
         super().__init__()
         self.gate_net = build_mlp([dim_feat * 2, dim_feat, 1], do_bn=False, on_last=False)
         
     def forward(self, own_feat, cross_feat):
-        """
-        own_feat: 자신의 특징
-        cross_feat: 교차 어텐션으로부터 받은 특징
-        """
+      
         combined = torch.cat([own_feat, cross_feat], dim=1)
         gate = torch.sigmoid(self.gate_net(combined))
         return gate * cross_feat + (1 - gate) * own_feat
 
 class SemanticGATLayer(MessagePassing):
-    """의미론적 관계에 특화된 GAT 레이어"""
     def __init__(self,
                  dim_node: int, dim_edge: int, dim_atten: int,
                  num_heads: int,
@@ -771,7 +756,6 @@ class SemanticGATLayer(MessagePassing):
                  flow: str = 'target_to_source'):
         super().__init__(aggr=aggr, flow=flow)
         
-        # 기존 BidirectionalEdgeLayer와 동일한 초기화 코드
         assert dim_node % num_heads == 0
         assert dim_edge % num_heads == 0
         assert dim_atten % num_heads == 0
@@ -784,12 +768,10 @@ class SemanticGATLayer(MessagePassing):
         self.dim_edge = dim_edge
         self.dim_atten = dim_atten
         
-        # 의미론적 관점에 특화된 프로젝션
         self.proj_q = build_mlp([dim_node, dim_node])
         self.proj_v = build_mlp([dim_node, dim_atten])
         self.proj_k = build_mlp([dim_edge, dim_edge])
         
-        # 의미론적 관계 강화를 위한 추가 가중치
         self.category_bias = nn.Parameter(torch.zeros(1, dim_edge))
         
         self.nn_edge_update = build_mlp([dim_node*2+dim_edge*2, dim_node+dim_edge*2, dim_edge],
@@ -876,15 +858,9 @@ class SemanticGATLayer(MessagePassing):
 
     def message(self, x_i: Tensor, x_j: Tensor, 
                 edge_feature: Tensor, reverse_edge_feature: Tensor) -> Tensor:
-        '''
-        x_i: 소스 노드 특징 [N, D_N]
-        x_j: 타겟 노드 특징 [N, D_N]
-        edge_feature: 정방향 에지 특징 [N, D_E]
-        reverse_edge_feature: 역방향 에지 특징 [N, D_E]
-        '''
+
         num_edge = x_i.size(0)
         
-        # 의미론적 관계에 카테고리 바이어스 추가
         edge_feature = edge_feature + self.category_bias
         
         updated_edge = self.nn_edge_update(
@@ -923,7 +899,6 @@ class SemanticGATLayer(MessagePassing):
         return updated_node, updated_edge, prob
 
 class GeometricGATLayer(MessagePassing):
-    """기하학적 관계에 특화된 GAT 레이어"""
     def __init__(self,
                  dim_node: int, dim_edge: int, dim_atten: int,
                  num_heads: int,
@@ -934,7 +909,6 @@ class GeometricGATLayer(MessagePassing):
                  use_distance_mask: bool = True):
         super().__init__(aggr=aggr, flow=flow)
         
-        # 기존 BidirectionalEdgeLayer와 동일한 초기화 코드
         assert dim_node % num_heads == 0
         assert dim_edge % num_heads == 0
         assert dim_atten % num_heads == 0
@@ -948,12 +922,10 @@ class GeometricGATLayer(MessagePassing):
         self.dim_atten = dim_atten
         self.use_distance_mask = use_distance_mask
         
-        # 기하학적 관점에 특화된 프로젝션
         self.proj_q = build_mlp([dim_node, dim_node])
         self.proj_v = build_mlp([dim_node, dim_atten])
         self.proj_k = build_mlp([dim_edge, dim_edge])
         
-        # 거리 기반 마스크 생성을 위한 MLP
         self.distance_mlp = build_mlp([4, 32, 1], do_bn=use_bn, on_last=False)
         
         self.nn_edge_update = build_mlp([dim_node*2+dim_edge*2, dim_node+dim_edge*2, dim_edge],
@@ -1106,7 +1078,6 @@ class GeometricGATLayer(MessagePassing):
         return updated_node, updated_edge, prob
 
 class DualGATNetwork(nn.Module):
-    """의미론적-기하학적 이중 GAT 네트워크"""
     def __init__(self, **kwargs):
         super().__init__()
         self.num_layers = kwargs['num_layers']
@@ -1119,33 +1090,24 @@ class DualGATNetwork(nn.Module):
         if 'DROP_OUT_ATTEN' in kwargs:
             self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
         
-        # 특징 강화 레이어
         self.semantic_enhancer = SemanticEnhancer(self.dim_node, self.dim_edge)
         self.geometric_enhancer = GeometricEnhancer(self.dim_node, self.dim_edge)
         
-        # 의미론적 GAT 레이어
         self.semantic_gats = nn.ModuleList()
-        # 기하학적 GAT 레이어
         self.geometric_gats = nn.ModuleList()
         
-        # 교차 어텐션 레이어
-        self.cross_attn_s2g = nn.ModuleList()  # 의미론적 -> 기하학적
-        self.cross_attn_g2s = nn.ModuleList()  # 기하학적 -> 의미론적
+        self.cross_attn_s2g = nn.ModuleList()  
+        self.cross_attn_g2s = nn.ModuleList()  
         
-        # 적응형 게이트
-        self.gate_s = nn.ModuleList()  # 의미론적 게이트
-        self.gate_g = nn.ModuleList()  # 기하학적 게이트
+        self.gate_s = nn.ModuleList() 
+        self.gate_g = nn.ModuleList()  
         
-        # 각 레이어별 교차 어텐션 강도 파라미터
         self.cross_gamma = nn.Parameter(torch.zeros(self.num_layers))
         
-        # 통합 프로젝터
         self.node_integrator = build_mlp([self.dim_node * 2, self.dim_node], do_bn=True)
         self.edge_integrator = build_mlp([self.dim_edge * 2, self.dim_edge], do_bn=True)
         
-        # 레이어 초기화
         for _ in range(self.num_layers):
-            # 의미론적 GAT
             self.semantic_gats.append(
                 SemanticGATLayer(
                     dim_node=self.dim_node,
@@ -1158,7 +1120,6 @@ class DualGATNetwork(nn.Module):
                 )
             )
             
-            # 기하학적 GAT
             self.geometric_gats.append(
                 GeometricGATLayer(
                     dim_node=self.dim_node,
@@ -1172,36 +1133,26 @@ class DualGATNetwork(nn.Module):
                 )
             )
             
-            # 교차 어텐션
             self.cross_attn_s2g.append(CrossAttention(self.dim_node, num_heads=4))
             self.cross_attn_g2s.append(CrossAttention(self.dim_node, num_heads=4))
             
-            # 게이트
             self.gate_s.append(AdaptiveGate(self.dim_node))
             self.gate_g.append(AdaptiveGate(self.dim_node))
         
-        # 초기화: 레이어가 깊어질수록 교차 어텐션 강도 증가
         for i in range(self.num_layers):
             gamma_value = 0.1 + 0.5 * (i / (self.num_layers - 1)) ** 2 if self.num_layers > 1 else 0.3
             self.cross_gamma.data[i] = gamma_value
 
     def forward(self, node_feature, edge_feature, edges_indices, descriptor=None):
-        """
-        node_feature: 노드 특징 [N, D_N]
-        edge_feature: 에지 특징 [E, D_E]
-        edges_indices: 에지 인덱스 [2, E]
-        descriptor: 노드 위치 정보 [N, 3+...]
-        """
+        
         probs_s = list()
         probs_g = list()
         
-        # 기하학적 관계 정보 추출 (에지별)
         geo_features = None
         node_positions = None
         if self.use_distance_mask and descriptor is not None:
             node_positions = descriptor[:, :3]
             
-            # 에지별 기하학적 특징 계산
             row, col = edges_indices
             geo_features = []
             for i, j in zip(row, col):
@@ -1209,7 +1160,6 @@ class DualGATNetwork(nn.Module):
                 pos_i, pos_j = node_positions[i], node_positions[j]
                 diff = pos_i - pos_j
                 dist = torch.norm(diff, p=2)
-                # 11차원 기하학적 특징 (위치 차이 벡터, 거리, 상대적 방향 등)
                 geo_feat = torch.cat([
                     diff,                     # 위치 차이 (3)
                     dist.unsqueeze(0),        # 유클리드 거리 (1)
@@ -1225,37 +1175,28 @@ class DualGATNetwork(nn.Module):
             
             geo_features = torch.stack(geo_features)
         
-        # 의미론적/기하학적 특징 강화
         node_feature_s, edge_feature_s = self.semantic_enhancer(node_feature, edge_feature)
         node_feature_g, edge_feature_g = self.geometric_enhancer(node_feature, edge_feature)
-        
-        # 각 레이어별 처리
+
         for i in range(self.num_layers):
-            # 의미론적 GAT 처리
             node_feature_s, edge_feature_s, prob_s = self.semantic_gats[i](
                 node_feature_s, edge_feature_s, edges_indices
             )
-            
-        # 기하학적 GAT 처리
+
             node_feature_g, edge_feature_g, prob_g = self.geometric_gats[i](
                 node_feature_g, edge_feature_g, edges_indices, node_positions
             )
             
-            # 교차 어텐션 계산
-            # 노드 특징을 배치 형태로 변환 (CrossAttention 입력 형식에 맞춤)
             node_s_batch = node_feature_s.unsqueeze(0)
             node_g_batch = node_feature_g.unsqueeze(0)
             
-            # 교차 어텐션 적용
             cross_s2g = self.cross_attn_s2g[i](node_g_batch, node_s_batch, node_s_batch).squeeze(0)
             cross_g2s = self.cross_attn_g2s[i](node_s_batch, node_g_batch, node_g_batch).squeeze(0)
             
-            # 적응형 게이트로 교차 정보 통합
-            gamma = self.cross_gamma[i]  # 현재 레이어의 교차 강도
+            gamma = self.cross_gamma[i] 
             node_feature_s = self.gate_s[i](node_feature_s, gamma * cross_g2s)
             node_feature_g = self.gate_g[i](node_feature_g, gamma * cross_s2g)
             
-            # 활성화 함수 적용
             if i < (self.num_layers-1) or self.num_layers == 1:
                 node_feature_s = F.relu(node_feature_s)
                 edge_feature_s = F.relu(edge_feature_s)
@@ -1268,7 +1209,6 @@ class DualGATNetwork(nn.Module):
                     node_feature_g = self.drop_out(node_feature_g)
                     edge_feature_g = self.drop_out(edge_feature_g)
             
-            # 확률 저장
             if prob_s is not None:
                 probs_s.append(prob_s.cpu().detach())
             else:
@@ -1279,11 +1219,14 @@ class DualGATNetwork(nn.Module):
             else:
                 probs_g.append(None)
         
-        # 두 GAT의 결과 통합
+        self.node_feature_s = node_feature_s  
+        self.node_feature_g = node_feature_g   
+        self.edge_feature_s = edge_feature_s  
+        self.edge_feature_g = edge_feature_g  
+        
         final_node_feature = self.node_integrator(torch.cat([node_feature_s, node_feature_g], dim=1))
         final_edge_feature = self.edge_integrator(torch.cat([edge_feature_s, edge_feature_g], dim=1))
         
-        # 통합된 확률
         probs = [probs_s, probs_g]
         
-        return final_node_feature, final_edge_feature, probs
+        return final_node_feature, final_edge_feature, probs, (node_feature_s, edge_feature_s, node_feature_g, edge_feature_g)
