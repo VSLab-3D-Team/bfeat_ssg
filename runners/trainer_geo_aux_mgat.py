@@ -219,7 +219,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         self.confusion_matrix = torch.zeros((self.num_rel_class, self.num_rel_class), device=self.device)
         
-        self.aug_batch_ratio = 0.5  # 배치 내 증강 샘플 초기 비율
+        self.aug_batch_ratio = 0.25  # 배치 내 증강 샘플 초기 비율
         self.aug_warmup_epochs = 5  # 증강 시작 에포크
         
         self.aug_strategy_weights = {
