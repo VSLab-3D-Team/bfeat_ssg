@@ -8,6 +8,7 @@ from utils.model_utils import Gen_Index, build_mlp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from model.backend.m_gat import DualGATNetwork  # 이중 GAT 네트워크 임포트
 
 class BFeatGeoAuxMGATNet(BaseNetwork):
     def __init__(self, config, n_obj_cls, n_rel_cls, device):
@@ -25,11 +26,6 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         self.point_encoder = PointNetEncoder(device, channel=self.dim_pts)
         self.point_encoder.load_state_dict(torch.load(self.t_config.ckp_path))
         self.point_encoder = self.point_encoder.to(self.device).eval()
-        # self.obj_proj = build_mlp([
-        #     self.m_config.dim_obj_feats, 
-        #     self.m_config.dim_obj_feats // 2, 
-        #     self.m_config.dim_obj_feats
-        # ], do_bn=True, on_last=True)
 
         self.index_get = Gen_Index(flow=self.m_config.flow)
         assert "relation_type" in self.m_config, "Direct GNN needs Relation Encoder Type: ResNet or 1D Conv"
@@ -86,7 +82,19 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             11
         ], do_bn=True, on_last=True)
         
-        if self.m_config.gat_type == "bidirectional":
+        if self.m_config.gat_type == "dual":
+            self.gat = DualGATNetwork(
+                dim_node=self.m_config.dim_obj_feats,
+                dim_edge=self.m_config.dim_edge_feats,
+                dim_atten=self.m_config.dim_attn,
+                num_layers=self.m_config.num_graph_update,
+                num_heads=self.m_config.num_heads,
+                use_distance_mask=self.m_config.use_distance_mask,
+                aggr='max',
+                DROP_OUT_ATTEN=self.t_config.drop_out,
+                use_bn=True
+            )
+        elif self.m_config.gat_type == "bidirectional":
             self.gat = BidirectionalEdgeGraphNetwork(
                 dim_node=self.m_config.dim_obj_feats,
                 dim_edge=self.m_config.dim_edge_feats,
@@ -111,7 +119,17 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         
         self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
         self.rel_classifier = RelationClsMulti(n_rel_cls, self.m_config.dim_edge_feats).to(self.device)
-    
+        
+        # 역할 특화 손실을 위한 손실 함수 추가
+        self.role_specific_loss = RoleSpecificLoss(
+            obj_label_list=self.obj_label_list,
+            rel_label_list=self.rel_label_list,
+            dim_geo=11,  # 기하학적 정보의 차원
+            device=device,
+            lambda_sem=getattr(self.t_config, 'lambda_sem', 0.5),
+            lambda_geo=getattr(self.t_config, 'lambda_geo', 0.5)
+        ).to(device)
+
     def set_inference_mode(self): # for masking
         if hasattr(self.relation_encoder, 'set_inference_mode'):
             self.relation_encoder.set_inference_mode()
@@ -134,7 +152,6 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         with torch.no_grad():
             _obj_feats, _, _ = self.point_encoder(obj_pts)
         obj_feats = _obj_feats.clone().detach() # B X N_feats
-        # obj_feats = self.obj_proj(obj_feats)
         
         if not self.m_config.relation_type == "pointnet":
             x_i_feats, x_j_feats = self.index_get(obj_feats, edge_indices)
@@ -142,8 +159,6 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             
             if edge_2d_feats is not None:
                 num_edges = x_i_feats.shape[0]
-                
-                print(f"Debug - x_i_feats shape: {x_i_feats.shape}, edge_2d_feats shape: {edge_2d_feats.shape}")
                 
                 if len(edge_2d_feats.shape) == 1:
                     edge_2d_feats = edge_2d_feats.unsqueeze(0).expand(num_edges, -1)
@@ -182,7 +197,12 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         else:
             edge_feats = self.relation_encoder(edge_pts)
         
-        if self.m_config.gat_type == "bidirectional" and not self.m_config.use_distance_mask:
+        # GAT 타입에 따른 처리
+        if self.m_config.gat_type == "dual":
+            obj_gnn_feats, edge_gnn_feats, _ = self.gat(
+                obj_feats, edge_feats, edge_indices, descriptor
+            )
+        elif self.m_config.gat_type == "bidirectional" and not self.m_config.use_distance_mask:
             obj_gnn_feats, edge_gnn_feats, _ = self.gat(
                 obj_feats, edge_feats, edge_indices
             )

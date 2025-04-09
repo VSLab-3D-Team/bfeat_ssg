@@ -13,6 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, CyclicLR
 import wandb
+from utils.model_utils import build_mlp
 
 class CLIPTextEncoder(nn.Module):
     def __init__(self, clip_model_name="ViT-B/32", device="cuda"):
@@ -53,6 +54,124 @@ class TripletProjector(nn.Module):
         combined = torch.cat([subj_feat, rel_feat, obj_feat], dim=1)
         return self.proj(combined)
 
+class RoleSpecificLoss(nn.Module):
+    """각 GAT의 역할 특화를 위한 손실 함수"""
+    def __init__(self, obj_label_list, rel_label_list, dim_geo=11, device="cuda", lambda_sem=0.5, lambda_geo=0.5):
+        super().__init__()
+        self.lambda_sem = lambda_sem
+        self.lambda_geo = lambda_geo
+        self.obj_label_list = obj_label_list
+        self.rel_label_list = rel_label_list
+        self.device = device
+        
+        # 기하학적 특징 프로젝터
+        self.geo_projector = build_mlp([dim_geo, 64, 128], do_bn=True)
+        
+        # 의미론적 특징 프로젝터
+        self.sem_projector = build_mlp([512, 256, 128], do_bn=True)
+        
+        # CLIP 텍스트 인코더
+        try:
+            self.clip_text_encoder = CLIPTextEncoder(device=device).to(device)
+            self._text_embeddings_cache = {}
+        except Exception as e:
+            print(f"CLIP initialization failed in RoleSpecificLoss: {e}")
+            self.clip_text_encoder = None
+        
+    def _get_text_embedding(self, text_template, fill_values):
+        """CLIP 텍스트 임베딩 가져오기"""
+        if self.clip_text_encoder is None:
+            return torch.ones(1, 512, device=self.device)
+            
+        text = text_template.format(**fill_values)
+        
+        if text in self._text_embeddings_cache:
+            return self._text_embeddings_cache[text]
+        
+        with torch.no_grad():
+            embedding = self.clip_text_encoder([text])
+            embedding = F.normalize(embedding, p=2, dim=1)
+            self._text_embeddings_cache[text] = embedding
+            
+        return embedding
+    
+    def forward(self, sem_feat, geo_feat, obj_pred, rel_pred, edge_indices, geo_desc):
+        """
+        sem_feat: 의미론적 GAT의 특징
+        geo_feat: 기하학적 GAT의 특징
+        obj_pred: 객체 분류 예측 (softmax 적용 전)
+        rel_pred: 관계 분류 예측
+        edge_indices: 에지 인덱스 [E, 2]
+        geo_desc: 기하학적 특징 (11차원)
+        """
+        batch_size = min(64, edge_indices.shape[0])  # 배치 크기 제한
+        if batch_size == 0:
+            return torch.tensor(0.0, device=self.device)
+            
+        # 샘플링
+        sample_indices = torch.randperm(edge_indices.shape[0])[:batch_size]
+        sampled_edges = edge_indices[sample_indices]
+        
+        # 객체 및 관계 예측값 가져오기
+        obj_pred_softmax = F.softmax(obj_pred, dim=1)
+        rel_pred_softmax = rel_pred
+        
+        subject_indices = sampled_edges[:, 0]
+        object_indices = sampled_edges[:, 1]
+        
+        subject_cls_pred = obj_pred_softmax[subject_indices]
+        object_cls_pred = obj_pred_softmax[object_indices]
+        relation_cls_pred = rel_pred_softmax[sample_indices]
+        
+        subject_cls_idx = subject_cls_pred.argmax(dim=1)
+        object_cls_idx = object_cls_pred.argmax(dim=1)
+        relation_cls_idx = relation_cls_pred.argmax(dim=1)
+        
+        # 의미론적 손실
+        sem_loss = 0.0
+        if self.clip_text_encoder is not None:
+            for i in range(batch_size):
+                subject_name = self.obj_label_list[subject_cls_idx[i]]
+                object_name = self.obj_label_list[object_cls_idx[i]]
+                relation_name = self.rel_label_list[relation_cls_idx[i]]
+                
+                # CLIP 텍스트 임베딩 가져오기
+                text_emb = self._get_text_embedding(
+                    "a point cloud of a {subj} {pred} a {obj}", 
+                    {"subj": subject_name, "pred": relation_name, "obj": object_name}
+                )
+                
+                # 의미론적 특징 프로젝션
+                sem_node_i = sem_feat[subject_indices[i]].unsqueeze(0)
+                sem_node_j = sem_feat[object_indices[i]].unsqueeze(0)
+                sem_combined = torch.cat([sem_node_i, sem_node_j], dim=1)
+                sem_projected = self.sem_projector(sem_combined)
+                
+                # 코사인 유사도 손실
+                sem_loss += (1 - F.cosine_similarity(sem_projected, text_emb)).mean()
+            
+            sem_loss = sem_loss / batch_size
+        
+        # 기하학적 손실
+        geo_loss = 0.0
+        for i in range(batch_size):
+            # 기하학적 특징 가져오기
+            geo_node_i = geo_feat[subject_indices[i]].unsqueeze(0)
+            geo_node_j = geo_feat[object_indices[i]].unsqueeze(0)
+            geo_combined = torch.cat([geo_node_i, geo_node_j], dim=1)
+            
+            # 기하학적 참조 특징 (11차원)
+            geo_reference = geo_desc[sample_indices[i]].unsqueeze(0)
+            geo_projected = self.geo_projector(geo_reference)
+            
+            # L2 손실
+            geo_loss += F.mse_loss(geo_combined, geo_projected)
+        
+        geo_loss = geo_loss / batch_size
+        
+        # 최종 손실
+        return self.lambda_sem * sem_loss + self.lambda_geo * geo_loss
+
 class BFeatGeoAuxMGATTrainer(BaseTrainer):
     def __init__(self, config, device):
         super().__init__(config, device, geo_aux=True)
@@ -82,11 +201,22 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             )
         else:
             raise NotImplementedError
+        
         # Loss function 
         self.f_criterion = WeightedFocalLoss()
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
         self.w_edge = TFIDFTripletWeight(self.num_obj_class, self.num_rel_class, self.device)
+        
+        # 역할 특화 손실 함수 초기화
+        self.role_specific_loss = RoleSpecificLoss(
+            obj_label_list=self.obj_label_list,
+            rel_label_list=self.rel_label_list,
+            dim_geo=11,  # 기하학적 정보의 차원
+            device=device,
+            lambda_sem=getattr(self.t_config, 'lambda_sem', 0.5),
+            lambda_geo=getattr(self.t_config, 'lambda_geo', 0.5)
+        ).to(device)
         
         try:
             self.clip_text_encoder = CLIPTextEncoder(device=device).to(device)
@@ -136,6 +266,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.add_meters([
             "Train/Geo_Aux_Loss",
             "Train/Edge_CLIP_Aux_Loss",
+            "Train/Role_Specific_Loss",
         ])
         self.del_meters([
             "Train/Contrastive_Loss"
@@ -256,6 +387,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 triplet_loss = torch.tensor(0.0, device=self.device)
                 edge_text_loss = torch.tensor(0.0, device=self.device)
                 edge_text_aux_loss = torch.tensor(0.0, device=self.device)
+
                 if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                     try:
                         with torch.no_grad():
@@ -401,6 +533,19 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                         print(f"Error during calculate edge_text_aux_loss: {str(e)}")
                         edge_text_aux_loss = torch.tensor(0.0, device=self.device)
 
+                # 역할 특화 손실 계산
+                role_specific_loss = torch.tensor(0.0, device=self.device)
+                if self.m_config.gat_type == "dual" and hasattr(self.model.gat, 'node_feature_s') and hasattr(self.model.gat, 'node_feature_g'):
+                    sem_node_feat = self.model.gat.node_feature_s
+                    geo_node_feat = self.model.gat.node_feature_g
+                    
+                    # CLIP 임베딩과 기하학적 임베딩
+                    if edge_2d_feats is not None:
+                        clip_embed = F.normalize(edge_2d_feats, p=2, dim=1)
+                        role_specific_loss = self.role_specific_loss(
+                            sem_node_feat, geo_node_feat, obj_pred, rel_pred, edge_indices, edge_desc
+                        )
+
                 # TODO: determine coefficient for each loss
                 lambda_o = self.t_config.lambda_obj # 0.1
                 lambda_r = self.t_config.lambda_rel
@@ -419,7 +564,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     + lambda_v * edge_clip_aux_loss \
                     + lambda_t * triplet_loss \
                     + lambda_e * edge_text_loss \
-                    + lambda_t_a * edge_text_aux_loss
+                    + lambda_t_a * edge_text_aux_loss \
+                    + self.t_config.lambda_role * role_specific_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -431,6 +577,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
                 self.meters['Train/Edge_Text_Loss'].update(edge_text_loss.detach().item())
                 self.meters['Train/Edge_Text_Aux_Loss'].update(edge_text_aux_loss.detach().item())
+                self.meters['Train/Role_Specific_Loss'].update(role_specific_loss.detach().item())
                 t_log = [
                     ("train/rel_loss", c_rel_loss.detach().item()),
                     ("train/obj_loss", c_obj_loss.detach().item()),

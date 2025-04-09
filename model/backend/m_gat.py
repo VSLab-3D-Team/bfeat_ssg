@@ -15,6 +15,8 @@ from copy import deepcopy
 from torch_scatter import scatter
 from inspect import signature
 
+from typing import Optional, Tuple
+
 def filter_args(func, keys):
     """
     Filters a dictionary so it only contains keys that are arguments of a function
@@ -672,3 +674,616 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
 #             probs.append(None)
                 
 #         return node_feature, edge_feature, probs
+
+class SemanticEnhancer(nn.Module):
+    """의미론적 특성을 강화하는 레이어"""
+    def __init__(self, dim_node: int, dim_edge: int):
+        super().__init__()
+        self.node_enhancer = build_mlp([dim_node, dim_node * 2, dim_node], do_bn=True)
+        self.edge_enhancer = build_mlp([dim_edge, dim_edge * 2, dim_edge], do_bn=True)
+        
+    def forward(self, node_features, edge_features):
+        """의미론적 측면을 강화한 특징 반환"""
+        enhanced_nodes = self.node_enhancer(node_features)
+        enhanced_edges = self.edge_enhancer(edge_features)
+        return enhanced_nodes, enhanced_edges
+
+class GeometricEnhancer(nn.Module):
+    """기하학적 특성을 강화하는 레이어"""
+    def __init__(self, dim_node: int, dim_edge: int, dim_geo: int = 11):
+        super().__init__()
+        self.node_enhancer = build_mlp([dim_node, dim_node * 2, dim_node], do_bn=True)
+        self.edge_enhancer = build_mlp([dim_edge + dim_geo, dim_edge * 2, dim_edge], do_bn=True)
+        
+    def forward(self, node_features, edge_features, geo_features):
+        """기하학적 측면을 강화한 특징 반환"""
+        enhanced_nodes = self.node_enhancer(node_features)
+        # 기하학적 정보와 에지 특징 결합
+        edge_with_geo = torch.cat([edge_features, geo_features], dim=1)
+        enhanced_edges = self.edge_enhancer(edge_with_geo)
+        return enhanced_nodes, enhanced_edges
+
+class CrossAttention(nn.Module):
+    """두 GAT 간의 교차 어텐션 계산"""
+    def __init__(self, dim_feat: int, num_heads: int = 4, dropout: float = 0.1):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim_feat // num_heads
+        assert dim_feat % num_heads == 0, "dim_feat must be divisible by num_heads"
+        
+        self.q_proj = nn.Linear(dim_feat, dim_feat)
+        self.k_proj = nn.Linear(dim_feat, dim_feat)
+        self.v_proj = nn.Linear(dim_feat, dim_feat)
+        self.out_proj = nn.Linear(dim_feat, dim_feat)
+        
+        self.dropout = nn.Dropout(dropout)
+        self.scale = self.head_dim ** -0.5
+        
+    def forward(self, query, key, value, attn_mask=None):
+        batch_size = query.size(0)
+        
+        # 선형 투영 및 헤드 분할
+        q = self.q_proj(query).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(key).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(value).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        # 어텐션 점수 계산
+        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        
+        if attn_mask is not None:
+            attn_weights = attn_weights.masked_fill(attn_mask == 0, -1e9)
+        
+        attn_weights = F.softmax(attn_weights, dim=-1)
+        attn_weights = self.dropout(attn_weights)
+        
+        # 값 가중 합산
+        attn_output = torch.matmul(attn_weights, v)
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, -1, self.num_heads * self.head_dim)
+        
+        # 최종 투영
+        output = self.out_proj(attn_output)
+        
+        return output
+
+class AdaptiveGate(nn.Module):
+    """교차 정보의 영향력을 동적으로 조절하는 게이트"""
+    def __init__(self, dim_feat: int):
+        super().__init__()
+        self.gate_net = build_mlp([dim_feat * 2, dim_feat, 1], do_bn=False, on_last=False)
+        
+    def forward(self, own_feat, cross_feat):
+        """
+        own_feat: 자신의 특징
+        cross_feat: 교차 어텐션으로부터 받은 특징
+        """
+        combined = torch.cat([own_feat, cross_feat], dim=1)
+        gate = torch.sigmoid(self.gate_net(combined))
+        return gate * cross_feat + (1 - gate) * own_feat
+
+class SemanticGATLayer(MessagePassing):
+    """의미론적 관계에 특화된 GAT 레이어"""
+    def __init__(self,
+                 dim_node: int, dim_edge: int, dim_atten: int,
+                 num_heads: int,
+                 use_bn: bool = True,
+                 aggr='max',
+                 attn_dropout: float = 0.3,
+                 flow: str = 'target_to_source'):
+        super().__init__(aggr=aggr, flow=flow)
+        
+        # 기존 BidirectionalEdgeLayer와 동일한 초기화 코드
+        assert dim_node % num_heads == 0
+        assert dim_edge % num_heads == 0
+        assert dim_atten % num_heads == 0
+        self.dim_node_proj = dim_node // num_heads
+        self.dim_edge_proj = dim_edge // num_heads
+        self.dim_value_proj = dim_atten // num_heads
+        self.num_head = num_heads
+        self.temperature = math.sqrt(self.dim_edge_proj)
+        self.dim_node = dim_node
+        self.dim_edge = dim_edge
+        self.dim_atten = dim_atten
+        
+        # 의미론적 관점에 특화된 프로젝션
+        self.proj_q = build_mlp([dim_node, dim_node])
+        self.proj_v = build_mlp([dim_node, dim_atten])
+        self.proj_k = build_mlp([dim_edge, dim_edge])
+        
+        # 의미론적 관계 강화를 위한 추가 가중치
+        self.category_bias = nn.Parameter(torch.zeros(1, dim_edge))
+        
+        self.nn_edge_update = build_mlp([dim_node*2+dim_edge*2, dim_node+dim_edge*2, dim_edge],
+                                      do_bn=use_bn, on_last=False)
+        
+        self.edge_attention_mlp = build_mlp([dim_edge*2, dim_edge], do_bn=use_bn, on_last=False)
+        
+        self.nn_node_update = build_mlp([dim_node+dim_edge, dim_node+dim_edge, dim_node],
+                                      do_bn=use_bn, on_last=False)
+        
+        self.nn_att = build_mlp([self.dim_node_proj+self.dim_edge_proj, 
+                              self.dim_node_proj+self.dim_edge_proj,
+                              self.dim_edge_proj])
+        
+        self.node_nonlinear_mlp = build_mlp([dim_node, dim_node, dim_node], 
+                                      do_bn=use_bn, on_last=False)
+        
+        self.dropout = torch.nn.Dropout(
+            attn_dropout) if attn_dropout > 0 else torch.nn.Identity()
+        
+        self.sigmoid = torch.nn.Sigmoid()
+    
+    def forward(self, x, edge_feature, edge_index):
+        row, col = edge_index
+        
+        edge_id_mapping = {}
+        for idx, (i, j) in enumerate(zip(row, col)):
+            edge_id_mapping[(i.item(), j.item())] = idx
+        
+        reverse_edge_feature = torch.zeros_like(edge_feature)
+        
+        for idx, (i, j) in enumerate(zip(row, col)):
+            if (j.item(), i.item()) in edge_id_mapping:
+                reverse_idx = edge_id_mapping[(j.item(), i.item())]
+                reverse_edge_feature[idx] = edge_feature[reverse_idx]
+        
+        outgoing_edges = {}
+        incoming_edges = {}
+        
+        for idx, (i, j) in enumerate(zip(row, col)):
+            i, j = i.item(), j.item()
+            if i not in outgoing_edges:
+                outgoing_edges[i] = []
+            outgoing_edges[i].append((idx, j))
+            
+            if j not in incoming_edges:
+                incoming_edges[j] = []
+            incoming_edges[j].append((idx, i))
+        
+        updated_node, updated_edge, prob = self.propagate(
+            edge_index, 
+            x=x, 
+            edge_feature=edge_feature,
+            reverse_edge_feature=reverse_edge_feature,
+            x_ori=x
+        )
+        
+        twin_edge_attention = torch.zeros((x.size(0), self.dim_edge*2), device=x.device)
+        
+        for node_id in range(x.size(0)):
+            outgoing_feature = torch.zeros(self.dim_edge, device=x.device)
+            if node_id in outgoing_edges:
+                for edge_idx, _ in outgoing_edges[node_id]:
+                    outgoing_feature += updated_edge[edge_idx]
+                if len(outgoing_edges[node_id]) > 0:
+                    outgoing_feature /= len(outgoing_edges[node_id])
+            
+            incoming_feature = torch.zeros(self.dim_edge, device=x.device)
+            if node_id in incoming_edges:
+                for edge_idx, _ in incoming_edges[node_id]:
+                    incoming_feature += updated_edge[edge_idx]
+                if len(incoming_edges[node_id]) > 0:
+                    incoming_feature /= len(incoming_edges[node_id])
+            
+            twin_edge_attention[node_id] = torch.cat([outgoing_feature, incoming_feature], dim=0)
+        
+        edge_attention = self.edge_attention_mlp(twin_edge_attention)
+        edge_attention = self.sigmoid(edge_attention)
+        
+        node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
+        final_node = node_feature_nonlinear * edge_attention
+        
+        return final_node, updated_edge, prob
+
+    def message(self, x_i: Tensor, x_j: Tensor, 
+                edge_feature: Tensor, reverse_edge_feature: Tensor) -> Tensor:
+        '''
+        x_i: 소스 노드 특징 [N, D_N]
+        x_j: 타겟 노드 특징 [N, D_N]
+        edge_feature: 정방향 에지 특징 [N, D_E]
+        reverse_edge_feature: 역방향 에지 특징 [N, D_E]
+        '''
+        num_edge = x_i.size(0)
+        
+        # 의미론적 관계에 카테고리 바이어스 추가
+        edge_feature = edge_feature + self.category_bias
+        
+        updated_edge = self.nn_edge_update(
+            torch.cat([x_i, edge_feature, reverse_edge_feature, x_j], dim=1)
+        )
+        
+        x_i_proj = self.proj_q(x_i).view(
+            num_edge, self.dim_node_proj, self.num_head)  # [N, D, H]
+        edge_proj = self.proj_k(edge_feature).view(
+            num_edge, self.dim_edge_proj, self.num_head)  # [N, D, H]
+        x_j_val = self.proj_v(x_j)
+        
+        att = self.nn_att(torch.cat([x_i_proj, edge_proj], dim=1))  # [N, D, H]
+        
+        prob = torch.nn.functional.softmax(att/self.temperature, dim=1)
+        prob = self.dropout(prob)
+        
+        weighted_value = prob.reshape_as(x_j_val) * x_j_val
+        
+        return [weighted_value, updated_edge, prob]
+
+    def aggregate(self, inputs: Tensor, index: Tensor, ptr: Optional[Tensor] = None,
+                  dim_size: Optional[int] = None) -> Tensor:
+        weighted_value, updated_edge, prob = inputs
+        weighted_value = scatter(weighted_value, index, dim=self.node_dim,
+                                dim_size=dim_size, reduce=self.aggr)
+        return weighted_value, updated_edge, prob
+
+    def update(self, inputs, x_ori):
+        weighted_value, updated_edge, prob = inputs
+        
+        updated_node = self.nn_node_update(
+            torch.cat([x_ori, weighted_value], dim=1)
+        )
+        
+        return updated_node, updated_edge, prob
+
+class GeometricGATLayer(MessagePassing):
+    """기하학적 관계에 특화된 GAT 레이어"""
+    def __init__(self,
+                 dim_node: int, dim_edge: int, dim_atten: int,
+                 num_heads: int,
+                 use_bn: bool = True,
+                 aggr='max',
+                 attn_dropout: float = 0.3,
+                 flow: str = 'target_to_source',
+                 use_distance_mask: bool = True):
+        super().__init__(aggr=aggr, flow=flow)
+        
+        # 기존 BidirectionalEdgeLayer와 동일한 초기화 코드
+        assert dim_node % num_heads == 0
+        assert dim_edge % num_heads == 0
+        assert dim_atten % num_heads == 0
+        self.dim_node_proj = dim_node // num_heads
+        self.dim_edge_proj = dim_edge // num_heads
+        self.dim_value_proj = dim_atten // num_heads
+        self.num_head = num_heads
+        self.temperature = math.sqrt(self.dim_edge_proj)
+        self.dim_node = dim_node
+        self.dim_edge = dim_edge
+        self.dim_atten = dim_atten
+        self.use_distance_mask = use_distance_mask
+        
+        # 기하학적 관점에 특화된 프로젝션
+        self.proj_q = build_mlp([dim_node, dim_node])
+        self.proj_v = build_mlp([dim_node, dim_atten])
+        self.proj_k = build_mlp([dim_edge, dim_edge])
+        
+        # 거리 기반 마스크 생성을 위한 MLP
+        self.distance_mlp = build_mlp([4, 32, 1], do_bn=use_bn, on_last=False)
+        
+        self.nn_edge_update = build_mlp([dim_node*2+dim_edge*2, dim_node+dim_edge*2, dim_edge],
+                                      do_bn=use_bn, on_last=False)
+        
+        self.edge_attention_mlp = build_mlp([dim_edge*2, dim_edge], do_bn=use_bn, on_last=False)
+        
+        self.nn_node_update = build_mlp([dim_node+dim_edge, dim_node+dim_edge, dim_node],
+                                      do_bn=use_bn, on_last=False)
+        
+        self.nn_att = build_mlp([self.dim_node_proj+self.dim_edge_proj, 
+                              self.dim_node_proj+self.dim_edge_proj,
+                              self.dim_edge_proj])
+        
+        self.node_nonlinear_mlp = build_mlp([dim_node, dim_node, dim_node], 
+                                      do_bn=use_bn, on_last=False)
+        
+        self.dropout = torch.nn.Dropout(
+            attn_dropout) if attn_dropout > 0 else torch.nn.Identity()
+        
+        self.sigmoid = torch.nn.Sigmoid()
+    
+    def forward(self, x, edge_feature, edge_index, node_positions=None):
+        row, col = edge_index
+        
+        edge_id_mapping = {}
+        for idx, (i, j) in enumerate(zip(row, col)):
+            edge_id_mapping[(i.item(), j.item())] = idx
+        
+        reverse_edge_feature = torch.zeros_like(edge_feature)
+        
+        for idx, (i, j) in enumerate(zip(row, col)):
+            if (j.item(), i.item()) in edge_id_mapping:
+                reverse_idx = edge_id_mapping[(j.item(), i.item())]
+                reverse_edge_feature[idx] = edge_feature[reverse_idx]
+        
+        distance_mask = None
+        if self.use_distance_mask and node_positions is not None:
+            distance_features = []
+            for i, j in zip(row, col):
+                i, j = i.item(), j.item()
+                pos_i, pos_j = node_positions[i], node_positions[j]
+                diff = pos_i - pos_j
+                dist = torch.norm(diff, p=2)
+                distance_features.append(torch.cat([diff, dist.unsqueeze(0)], dim=0))
+            
+            distance_features = torch.stack(distance_features)
+            
+            distance_mask = self.distance_mlp(distance_features)
+            distance_mask = self.sigmoid(distance_mask).squeeze(-1)
+        
+        outgoing_edges = {}
+        incoming_edges = {}
+        
+        for idx, (i, j) in enumerate(zip(row, col)):
+            i, j = i.item(), j.item()
+            if i not in outgoing_edges:
+                outgoing_edges[i] = []
+            outgoing_edges[i].append((idx, j))
+            
+            if j not in incoming_edges:
+                incoming_edges[j] = []
+            incoming_edges[j].append((idx, i))
+        
+        updated_node, updated_edge, prob = self.propagate(
+            edge_index, 
+            x=x, 
+            edge_feature=edge_feature,
+            reverse_edge_feature=reverse_edge_feature,
+            distance_mask=distance_mask,
+            x_ori=x
+        )
+        
+        twin_edge_attention = torch.zeros((x.size(0), self.dim_edge*2), device=x.device)
+        
+        for node_id in range(x.size(0)):
+            outgoing_feature = torch.zeros(self.dim_edge, device=x.device)
+            if node_id in outgoing_edges:
+                for edge_idx, _ in outgoing_edges[node_id]:
+                    outgoing_feature += updated_edge[edge_idx]
+                if len(outgoing_edges[node_id]) > 0:
+                    outgoing_feature /= len(outgoing_edges[node_id])
+            
+            incoming_feature = torch.zeros(self.dim_edge, device=x.device)
+            if node_id in incoming_edges:
+                for edge_idx, _ in incoming_edges[node_id]:
+                    incoming_feature += updated_edge[edge_idx]
+                if len(incoming_edges[node_id]) > 0:
+                    incoming_feature /= len(incoming_edges[node_id])
+            
+            twin_edge_attention[node_id] = torch.cat([outgoing_feature, incoming_feature], dim=0)
+        
+        edge_attention = self.edge_attention_mlp(twin_edge_attention)
+        edge_attention = self.sigmoid(edge_attention)
+        
+        node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
+        final_node = node_feature_nonlinear * edge_attention
+        
+        return final_node, updated_edge, prob
+
+    def message(self, x_i: Tensor, x_j: Tensor, 
+                edge_feature: Tensor, reverse_edge_feature: Tensor,
+                distance_mask: Optional[Tensor] = None) -> Tensor:
+        '''
+        x_i: 소스 노드 특징 [N, D_N]
+        x_j: 타겟 노드 특징 [N, D_N]
+        edge_feature: 정방향 에지 특징 [N, D_E]
+        reverse_edge_feature: 역방향 에지 특징 [N, D_E]
+        distance_mask: 거리 기반 마스킹 가중치 [N] (선택적)
+        '''
+        num_edge = x_i.size(0)
+        
+        updated_edge = self.nn_edge_update(
+            torch.cat([x_i, edge_feature, reverse_edge_feature, x_j], dim=1)
+        )
+        
+        x_i_proj = self.proj_q(x_i).view(
+            num_edge, self.dim_node_proj, self.num_head)  # [N, D, H]
+        edge_proj = self.proj_k(edge_feature).view(
+            num_edge, self.dim_edge_proj, self.num_head)  # [N, D, H]
+        x_j_val = self.proj_v(x_j)
+        
+        att = self.nn_att(torch.cat([x_i_proj, edge_proj], dim=1))  # [N, D, H]
+        
+        if distance_mask is not None:
+            distance_mask = distance_mask.view(-1, 1, 1)
+            att = att * distance_mask
+        
+        prob = torch.nn.functional.softmax(att/self.temperature, dim=1)
+        prob = self.dropout(prob)
+        
+        weighted_value = prob.reshape_as(x_j_val) * x_j_val
+        
+        return [weighted_value, updated_edge, prob]
+
+    def aggregate(self, inputs: Tensor, index: Tensor, ptr: Optional[Tensor] = None,
+                  dim_size: Optional[int] = None) -> Tensor:
+        weighted_value, updated_edge, prob = inputs
+        weighted_value = scatter(weighted_value, index, dim=self.node_dim,
+                                dim_size=dim_size, reduce=self.aggr)
+        return weighted_value, updated_edge, prob
+
+    def update(self, inputs, x_ori):
+        weighted_value, updated_edge, prob = inputs
+        
+        updated_node = self.nn_node_update(
+            torch.cat([x_ori, weighted_value], dim=1)
+        )
+        
+        return updated_node, updated_edge, prob
+
+class DualGATNetwork(nn.Module):
+    """의미론적-기하학적 이중 GAT 네트워크"""
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.num_layers = kwargs['num_layers']
+        self.use_distance_mask = kwargs.get('use_distance_mask', True)
+        self.dim_node = kwargs['dim_node']
+        self.dim_edge = kwargs['dim_edge']
+        self.dim_atten = kwargs['dim_atten']
+        self.num_heads = kwargs['num_heads']
+        self.drop_out = None
+        if 'DROP_OUT_ATTEN' in kwargs:
+            self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
+        
+        # 특징 강화 레이어
+        self.semantic_enhancer = SemanticEnhancer(self.dim_node, self.dim_edge)
+        self.geometric_enhancer = GeometricEnhancer(self.dim_node, self.dim_edge)
+        
+        # 의미론적 GAT 레이어
+        self.semantic_gats = nn.ModuleList()
+        # 기하학적 GAT 레이어
+        self.geometric_gats = nn.ModuleList()
+        
+        # 교차 어텐션 레이어
+        self.cross_attn_s2g = nn.ModuleList()  # 의미론적 -> 기하학적
+        self.cross_attn_g2s = nn.ModuleList()  # 기하학적 -> 의미론적
+        
+        # 적응형 게이트
+        self.gate_s = nn.ModuleList()  # 의미론적 게이트
+        self.gate_g = nn.ModuleList()  # 기하학적 게이트
+        
+        # 각 레이어별 교차 어텐션 강도 파라미터
+        self.cross_gamma = nn.Parameter(torch.zeros(self.num_layers))
+        
+        # 통합 프로젝터
+        self.node_integrator = build_mlp([self.dim_node * 2, self.dim_node], do_bn=True)
+        self.edge_integrator = build_mlp([self.dim_edge * 2, self.dim_edge], do_bn=True)
+        
+        # 레이어 초기화
+        for _ in range(self.num_layers):
+            # 의미론적 GAT
+            self.semantic_gats.append(
+                SemanticGATLayer(
+                    dim_node=self.dim_node,
+                    dim_edge=self.dim_edge,
+                    dim_atten=self.dim_atten,
+                    num_heads=self.num_heads,
+                    use_bn=kwargs.get('use_bn', True),
+                    aggr='max',
+                    attn_dropout=kwargs.get('DROP_OUT_ATTEN', 0.3),
+                )
+            )
+            
+            # 기하학적 GAT
+            self.geometric_gats.append(
+                GeometricGATLayer(
+                    dim_node=self.dim_node,
+                    dim_edge=self.dim_edge,
+                    dim_atten=self.dim_atten,
+                    num_heads=self.num_heads,
+                    use_bn=kwargs.get('use_bn', True),
+                    aggr='max',
+                    attn_dropout=kwargs.get('DROP_OUT_ATTEN', 0.3),
+                    use_distance_mask=self.use_distance_mask
+                )
+            )
+            
+            # 교차 어텐션
+            self.cross_attn_s2g.append(CrossAttention(self.dim_node, num_heads=4))
+            self.cross_attn_g2s.append(CrossAttention(self.dim_node, num_heads=4))
+            
+            # 게이트
+            self.gate_s.append(AdaptiveGate(self.dim_node))
+            self.gate_g.append(AdaptiveGate(self.dim_node))
+        
+        # 초기화: 레이어가 깊어질수록 교차 어텐션 강도 증가
+        for i in range(self.num_layers):
+            gamma_value = 0.1 + 0.5 * (i / (self.num_layers - 1)) ** 2 if self.num_layers > 1 else 0.3
+            self.cross_gamma.data[i] = gamma_value
+
+    def forward(self, node_feature, edge_feature, edges_indices, descriptor=None):
+        """
+        node_feature: 노드 특징 [N, D_N]
+        edge_feature: 에지 특징 [E, D_E]
+        edges_indices: 에지 인덱스 [2, E]
+        descriptor: 노드 위치 정보 [N, 3+...]
+        """
+        probs_s = list()
+        probs_g = list()
+        
+        # 기하학적 관계 정보 추출 (에지별)
+        geo_features = None
+        node_positions = None
+        if self.use_distance_mask and descriptor is not None:
+            node_positions = descriptor[:, :3]
+            
+            # 에지별 기하학적 특징 계산
+            row, col = edges_indices
+            geo_features = []
+            for i, j in zip(row, col):
+                i, j = i.item(), j.item()
+                pos_i, pos_j = node_positions[i], node_positions[j]
+                diff = pos_i - pos_j
+                dist = torch.norm(diff, p=2)
+                # 11차원 기하학적 특징 (위치 차이 벡터, 거리, 상대적 방향 등)
+                geo_feat = torch.cat([
+                    diff,                     # 위치 차이 (3)
+                    dist.unsqueeze(0),        # 유클리드 거리 (1)
+                    diff / (dist + 1e-10),    # 정규화된 방향 (3)
+                    torch.tensor([
+                        diff[0] > 0,          # x 방향 관계 (1)
+                        diff[1] > 0,          # y 방향 관계 (1)
+                        diff[2] > 0,          # z 방향 관계 (1)
+                        dist < torch.median(dist)  # 근접성 (1)
+                    ], device=diff.device).float()
+                ], dim=0)
+                geo_features.append(geo_feat)
+            
+            geo_features = torch.stack(geo_features)
+        
+        # 의미론적/기하학적 특징 강화
+        node_feature_s, edge_feature_s = self.semantic_enhancer(node_feature, edge_feature)
+        node_feature_g, edge_feature_g = self.geometric_enhancer(node_feature, edge_feature)
+        
+        # 각 레이어별 처리
+        for i in range(self.num_layers):
+            # 의미론적 GAT 처리
+            node_feature_s, edge_feature_s, prob_s = self.semantic_gats[i](
+                node_feature_s, edge_feature_s, edges_indices
+            )
+            
+        # 기하학적 GAT 처리
+            node_feature_g, edge_feature_g, prob_g = self.geometric_gats[i](
+                node_feature_g, edge_feature_g, edges_indices, node_positions
+            )
+            
+            # 교차 어텐션 계산
+            # 노드 특징을 배치 형태로 변환 (CrossAttention 입력 형식에 맞춤)
+            node_s_batch = node_feature_s.unsqueeze(0)
+            node_g_batch = node_feature_g.unsqueeze(0)
+            
+            # 교차 어텐션 적용
+            cross_s2g = self.cross_attn_s2g[i](node_g_batch, node_s_batch, node_s_batch).squeeze(0)
+            cross_g2s = self.cross_attn_g2s[i](node_s_batch, node_g_batch, node_g_batch).squeeze(0)
+            
+            # 적응형 게이트로 교차 정보 통합
+            gamma = self.cross_gamma[i]  # 현재 레이어의 교차 강도
+            node_feature_s = self.gate_s[i](node_feature_s, gamma * cross_g2s)
+            node_feature_g = self.gate_g[i](node_feature_g, gamma * cross_s2g)
+            
+            # 활성화 함수 적용
+            if i < (self.num_layers-1) or self.num_layers == 1:
+                node_feature_s = F.relu(node_feature_s)
+                edge_feature_s = F.relu(edge_feature_s)
+                node_feature_g = F.relu(node_feature_g)
+                edge_feature_g = F.relu(edge_feature_g)
+                
+                if self.drop_out:
+                    node_feature_s = self.drop_out(node_feature_s)
+                    edge_feature_s = self.drop_out(edge_feature_s)
+                    node_feature_g = self.drop_out(node_feature_g)
+                    edge_feature_g = self.drop_out(edge_feature_g)
+            
+            # 확률 저장
+            if prob_s is not None:
+                probs_s.append(prob_s.cpu().detach())
+            else:
+                probs_s.append(None)
+                
+            if prob_g is not None:
+                probs_g.append(prob_g.cpu().detach())
+            else:
+                probs_g.append(None)
+        
+        # 두 GAT의 결과 통합
+        final_node_feature = self.node_integrator(torch.cat([node_feature_s, node_feature_g], dim=1))
+        final_edge_feature = self.edge_integrator(torch.cat([edge_feature_s, edge_feature_g], dim=1))
+        
+        # 통합된 확률
+        probs = [probs_s, probs_g]
+        
+        return final_node_feature, final_edge_feature, probs
