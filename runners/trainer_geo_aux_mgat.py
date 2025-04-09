@@ -355,20 +355,22 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.replay_buffers[cls].append(sample)
 
     def _update_centroids(self, features, class_indices):
-       
-        for feat, cls_idx in zip(features, class_indices):
-            cls = cls_idx.item()
-            
-            old_count = self.class_counts[cls]
-            new_count = old_count + 1
-            
-            if old_count > 0:
-                self.class_centroids[cls] = (self.class_centroids[cls] * old_count + feat) / new_count
-            else:
-                self.class_centroids[cls] = feat
+        with torch.no_grad():
+            for feat, cls_idx in zip(features, class_indices):
+                cls = cls_idx.item()
                 
-            self.class_counts[cls] = new_count
-
+                old_count = self.class_counts[cls].item()
+                new_count = old_count + 1
+                
+                if old_count > 0:
+                    old_centroid = self.class_centroids[cls].clone()
+                    new_centroid = (old_centroid * old_count + feat.detach()) / new_count
+                    self.class_centroids[cls] = new_centroid
+                else:
+                    self.class_centroids[cls] = feat.detach().clone()
+                    
+                self.class_counts[cls] = torch.tensor(new_count, device=self.class_counts.device)
+            
     def _update_augmentation_strength(self):
        
         self.augmentation_strength = 0.1 + 0.2 * (1.0 - torch.clamp(self.class_accuracy, min=0.0, max=1.0))
@@ -460,20 +462,24 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             return features
 
     def _centroid_based_augmentation(self, features, class_indices):
-       
+        device = features.device
         augmented_features = []
         
-        for feat, cls_idx in zip(features, class_indices):
+        centroids = self.class_centroids.to(device)
+        aug_strength = self.augmentation_strength.to(device)
+        
+        for i, (feat, cls_idx) in enumerate(zip(features, class_indices)):
             cls = cls_idx.item()
             
             if self.class_counts[cls] > 0:
-                alpha = self.augmentation_strength[cls]
-                aug_feat = feat + alpha * (self.class_centroids[cls] - feat)
+                direction = centroids[cls] - feat
+                offset = aug_strength[cls] * direction
+                aug_feat = feat + offset
                 
                 aug_feat = F.normalize(aug_feat, p=2, dim=0)
                 augmented_features.append(aug_feat)
             else:
-                augmented_features.append(feat)
+                augmented_features.append(feat.clone())
         
         return torch.stack(augmented_features)
 
@@ -562,6 +568,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         # Training Loop
         for e in range(self.t_config.epoch):
+            torch.autograd.set_detect_anomaly(True)
             self.wandb_log = {}
             progbar = Progbar(n_iters, width=40, stateful_metrics=['Misc/epo', 'Misc/it'])
             self.model = self.model.train()

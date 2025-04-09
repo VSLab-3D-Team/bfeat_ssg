@@ -145,10 +145,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
     
     def _enhance_geometric_features(self, descriptor, rel_pred):
      
-        batch_size = descriptor.size(0)
-        
         weighted_features = rel_pred.unsqueeze(-1) * self.relation_geo_weights.unsqueeze(0)
-        
         combined_weights = torch.sum(weighted_features, dim=1)
         
         weighted_bias = rel_pred @ self.relation_geo_bias
@@ -156,7 +153,6 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
         enhanced_features = descriptor * combined_weights + weighted_bias
         
         enhanced_features = self.geo_enhancer_mlp(enhanced_features)
-        
         return enhanced_features
     
     def set_inference_mode(self):
