@@ -600,7 +600,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
 
             if e >= self.aug_warmup_epochs:
                 progress = min(1.0, (e - self.aug_warmup_epochs) / (self.t_config.epoch - self.aug_warmup_epochs))
-                self.aug_batch_ratio = 0.3 + 0.7 * progress
+                self.aug_batch_ratio = 0.5 + 0.5 * progress
             
             for idx, (
                 obj_pts, 
