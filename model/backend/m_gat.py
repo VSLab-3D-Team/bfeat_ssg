@@ -1091,7 +1091,7 @@ class DualGATNetwork(nn.Module):
             self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
         
         self.semantic_enhancer = SemanticEnhancer(self.dim_node, self.dim_edge)
-        self.geometric_enhancer = GeometricEnhancer(self.dim_node, self.dim_edge)
+        self.geometric_enhancer = GeometricEnhancer(self.dim_node, self.dim_edge, dim_geo=11)
         
         self.semantic_gats = nn.ModuleList()
         self.geometric_gats = nn.ModuleList()
@@ -1176,7 +1176,7 @@ class DualGATNetwork(nn.Module):
             geo_features = torch.stack(geo_features)
         
         node_feature_s, edge_feature_s = self.semantic_enhancer(node_feature, edge_feature)
-        node_feature_g, edge_feature_g = self.geometric_enhancer(node_feature, edge_feature)
+        node_feature_g, edge_feature_g = self.geometric_enhancer(node_feature, edge_feature, geo_features)
 
         for i in range(self.num_layers):
             node_feature_s, edge_feature_s, prob_s = self.semantic_gats[i](
