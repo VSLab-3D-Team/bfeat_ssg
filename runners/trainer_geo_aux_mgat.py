@@ -206,8 +206,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         self.replay_buffers = self.replay_buffer['buffers']
         
-        self.total_buffer_size = 5000 # 조정
-        self.min_samples_per_class = 20 # 조정
+        self.total_buffer_size = 500 # 조정
+        self.min_samples_per_class = 2 # 조정
         
         self.class_difficulty = torch.ones(self.num_rel_class, device=self.device)
         self.class_frequency = torch.zeros(self.num_rel_class, device=self.device)
@@ -220,7 +220,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.confusion_matrix = torch.zeros((self.num_rel_class, self.num_rel_class), device=self.device)
         
         self.aug_batch_ratio = 0.3  # 초기 배치 내 증강 샘플 비율
-        self.aug_warmup_epochs = 5  # 증강 시작 에포크
+        self.aug_warmup_epochs = 1  # 증강 시작 에포크
         
         self.aug_strategy_weights = {
             'centroid': 0.4,
