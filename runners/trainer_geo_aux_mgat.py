@@ -241,8 +241,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
 
     def _update_buffer_class_difficulty(self, class_accuracy):
  
-        # 정확도가 낮을수록 난이도가 높음
-        self.class_difficulty = 1.0 - torch.clamp(class_accuracy, min=0.0, max=0.99)
+        clamped_accuracy = torch.clamp(class_accuracy, min=0.0, max=1.0)
+        self.class_difficulty = 1.0 - clamped_accuracy
 
     def _update_buffer_class_frequency(self, class_counts):
 
@@ -296,7 +296,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.meters['Train/Class_Accuracy_Min'].update(torch.min(self.class_accuracy).item())
 
     def _compute_difficulty_score(self, pred, target):
-     
+        
         with torch.no_grad():
             if self.d_config.multi_rel:
                 pred_prob = pred.clone()
@@ -309,6 +309,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 correct_class_prob = pred_prob[torch.arange(pred.size(0)), target_indices]
                 
                 difficulty = 1.0 - correct_class_prob
+            
+            difficulty = torch.clamp(difficulty, min=0.0, max=1.0)
             
             return difficulty
 
@@ -373,7 +375,9 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             
     def _update_augmentation_strength(self):
        
-        self.augmentation_strength = 0.1 + 0.2 * (1.0 - torch.clamp(self.class_accuracy, min=0.0, max=1.0))
+        clamped_accuracy = torch.clamp(self.class_accuracy, min=0.0, max=1.0)
+    
+        self.augmentation_strength = 0.1 + 0.2 * (1.0 - clamped_accuracy)
 
     def _select_augmentation_strategy(self):
         
@@ -385,15 +389,21 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         return random.choices(strategies, weights=weights, k=1)[0]
 
     def _sample_from_replay_buffer(self, batch_size):
-
+        
         import random
+        
+        batch_size = min(batch_size, 8)
         
         non_empty_classes = [cls for cls in range(self.num_rel_class) if len(self.replay_buffers[cls]) > 0]
         
         if len(non_empty_classes) == 0:
             return None, None
         
-        weights = torch.tensor([self.class_difficulty[cls].item() for cls in non_empty_classes], device=self.device)
+        weights = torch.tensor([max(0.0, self.class_difficulty[cls].item()) for cls in non_empty_classes], device=self.device)
+        
+        if torch.sum(weights) <= 0:
+            weights = torch.ones(len(non_empty_classes), device=self.device)
+        
         weights = F.softmax(weights, dim=0)
         
         actual_samples = min(batch_size, len(non_empty_classes))
@@ -427,21 +437,35 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         for cls, count in class_sample_counts.items():
             if count > 0 and len(self.replay_buffers[cls]) > 0:
-                difficulties = torch.tensor([sample['difficulty'] for sample in self.replay_buffers[cls]])
-                if torch.sum(difficulties) > 0:
-                    sample_weights = difficulties / torch.sum(difficulties)
+                difficulties = torch.tensor([max(0.0, sample['difficulty']) for sample in self.replay_buffers[cls]])
+                
+                if torch.sum(difficulties) <= 0:
+                    sample_weights = torch.ones(len(self.replay_buffers[cls])) / len(self.replay_buffers[cls])
                 else:
-                    sample_weights = torch.ones_like(difficulties) / len(difficulties)
+                    sample_weights = difficulties / torch.sum(difficulties)
                 
-                sample_indices = torch.multinomial(
-                    sample_weights, 
-                    min(count, len(self.replay_buffers[cls])), 
-                    replacement=True
-                )
+                sample_weights = torch.clamp(sample_weights, min=0.0)
+                if torch.sum(sample_weights) <= 0:
+                    sample_weights = torch.ones_like(sample_weights) / len(sample_weights)
                 
-                for idx in sample_indices:
-                    sampled_features.append(self.replay_buffers[cls][idx.item()]['feature'].to(self.device))
-                    sampled_classes.append(cls)
+                try:
+                    sample_indices = torch.multinomial(
+                        sample_weights, 
+                        min(count, len(self.replay_buffers[cls])), 
+                        replacement=True
+                    )
+                    
+                    for idx in sample_indices:
+                        sampled_features.append(self.replay_buffers[cls][idx.item()]['feature'].to(self.device))
+                        sampled_classes.append(cls)
+                except RuntimeError as e:
+                    print(f"Error during sampling from class {cls}: {e}")
+                    print(f"sample_weights stats: min={sample_weights.min().item()}, max={sample_weights.max().item()}, sum={sample_weights.sum().item()}")
+                    if len(self.replay_buffers[cls]) > 0:
+                        random_indices = torch.randint(0, len(self.replay_buffers[cls]), (min(count, len(self.replay_buffers[cls])),))
+                        for idx in random_indices:
+                            sampled_features.append(self.replay_buffers[cls][idx.item()]['feature'].to(self.device))
+                            sampled_classes.append(cls)
         
         if not sampled_features:
             return None, None
