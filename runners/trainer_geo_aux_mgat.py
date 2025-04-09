@@ -206,8 +206,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         self.replay_buffers = self.replay_buffer['buffers']
         
-        self.total_buffer_size = 25000
-        self.min_samples_per_class = 100
+        self.total_buffer_size = 5000 # 조정
+        self.min_samples_per_class = 20 # 조정
         
         self.class_difficulty = torch.ones(self.num_rel_class, device=self.device)
         self.class_frequency = torch.zeros(self.num_rel_class, device=self.device)
@@ -569,7 +569,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
 
             if e >= self.aug_warmup_epochs:
                 progress = min(1.0, (e - self.aug_warmup_epochs) / (self.t_config.epoch - self.aug_warmup_epochs))
-                self.aug_batch_ratio = 0.3 + 0.2 * progress
+                self.aug_batch_ratio = 0.5 + 0.5 * progress
             
             for idx, (
                 obj_pts, 
@@ -798,7 +798,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
 
                 aug_loss = torch.tensor(0.0, device=self.device)
                 if e >= self.aug_warmup_epochs:
-                    aug_batch_size = int(edge_feats.size(0) * self.aug_batch_ratio)
+                    aug_batch_size = min(int(edge_feats.size(0) * self.aug_batch_ratio), 8) # 조정
                     if aug_batch_size > 0:
                         sampled_features, sampled_classes = self._sample_from_replay_buffer(aug_batch_size)
                         
