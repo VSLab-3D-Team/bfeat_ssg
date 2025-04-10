@@ -70,9 +70,9 @@ class RoleSpecificLoss(nn.Module):
         ).to(device)
         
         self.sem_projector = nn.Sequential(
-            nn.Linear(512, 256),
+            nn.Linear(512, 512),  
             nn.ReLU(),
-            nn.Linear(256, 128)
+            nn.Linear(512, 512)
         ).to(device)
         
         try:
@@ -148,7 +148,15 @@ class RoleSpecificLoss(nn.Module):
                 all_sem_features = torch.stack(all_sem_features)
                 all_text_embs = torch.stack(all_text_embs)
                 
+                print(f"all_sem_features shape: {all_sem_features.shape}")
+                print(f"all_text_embs shape: {all_text_embs.shape}")
+                
                 sem_projected = self.sem_projector(all_sem_features)
+                
+                print(f"sem_projected shape: {sem_projected.shape}")
+                
+                sem_projected = F.normalize(sem_projected, p=2, dim=1)
+                all_text_embs = F.normalize(all_text_embs, p=2, dim=1)
                 
                 sem_loss = (1 - F.cosine_similarity(sem_projected, all_text_embs, dim=1)).mean()
         
