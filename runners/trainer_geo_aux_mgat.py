@@ -206,8 +206,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         self.replay_buffers = self.replay_buffer['buffers']
         
-        self.total_buffer_size = 4000 # 조정
-        self.min_samples_per_class = 16 # 조정
+        self.total_buffer_size = 500 # 조정
+        self.min_samples_per_class = 2 # 조정
         
         self.class_difficulty = torch.ones(self.num_rel_class, device=self.device)
         self.class_frequency = torch.zeros(self.num_rel_class, device=self.device)
