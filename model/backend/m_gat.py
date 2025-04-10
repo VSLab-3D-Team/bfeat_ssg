@@ -782,11 +782,9 @@ class SemanticGATLayer(MessagePassing):
         self.nn_node_update = build_mlp([dim_node+dim_edge, dim_node+dim_edge, dim_node],
                                       do_bn=use_bn, on_last=False)
         
-        self.nn_att = nn.Sequential(
-            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_node_proj+self.dim_edge_proj),
-            nn.LeakyReLU(),
-            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_edge_proj)
-        )
+        self.nn_att = build_mlp([self.dim_node_proj*self.num_head + self.dim_edge_proj*self.num_head, 
+                       (self.dim_node_proj + self.dim_edge_proj)*self.num_head // 2, 
+                       self.dim_edge_proj*self.num_head])
         
         self.node_nonlinear_mlp = build_mlp([dim_node, dim_node, dim_node], 
                                       do_bn=use_bn, on_last=False)
@@ -859,8 +857,7 @@ class SemanticGATLayer(MessagePassing):
         return final_node, updated_edge, prob
 
     def message(self, x_i: Tensor, x_j: Tensor, 
-                edge_feature: Tensor, reverse_edge_feature: Tensor) -> Tensor:
-
+            edge_feature: Tensor, reverse_edge_feature: Tensor) -> Tensor:
         num_edge = x_i.size(0)
         
         edge_feature = edge_feature + self.category_bias
@@ -869,13 +866,18 @@ class SemanticGATLayer(MessagePassing):
             torch.cat([x_i, edge_feature, reverse_edge_feature, x_j], dim=1)
         )
         
-        x_i_proj = self.proj_q(x_i).view(
-            num_edge, self.dim_node_proj, self.num_head)  # [N, D, H]
-        edge_proj = self.proj_k(edge_feature).view(
-            num_edge, self.dim_edge_proj, self.num_head)  # [N, D, H]
+        x_i_proj = self.proj_q(x_i).view(num_edge, self.dim_node_proj, self.num_head)  # [N, D, H]
+        edge_proj = self.proj_k(edge_feature).view(num_edge, self.dim_edge_proj, self.num_head)  # [N, D, H]
         x_j_val = self.proj_v(x_j)
         
-        att = self.nn_att(torch.cat([x_i_proj, edge_proj], dim=1))  # [N, D, H]
+        x_i_proj_flat = x_i_proj.reshape(num_edge, -1)
+        edge_proj_flat = edge_proj.reshape(num_edge, -1)
+        
+        combined = torch.cat([x_i_proj_flat, edge_proj_flat], dim=1)
+        
+        att_flat = self.nn_att(combined)
+        
+        att = att_flat.view(num_edge, self.dim_edge_proj, self.num_head)
         
         prob = torch.nn.functional.softmax(att/self.temperature, dim=1)
         prob = self.dropout(prob)
@@ -938,11 +940,9 @@ class GeometricGATLayer(MessagePassing):
         self.nn_node_update = build_mlp([dim_node+dim_edge, dim_node+dim_edge, dim_node],
                                       do_bn=use_bn, on_last=False)
         
-        self.nn_att = nn.Sequential(
-            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_node_proj+self.dim_edge_proj),
-            nn.LeakyReLU(),
-            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_edge_proj)
-        )
+        self.nn_att = build_mlp([self.dim_node_proj*self.num_head + self.dim_edge_proj*self.num_head, 
+                       (self.dim_node_proj + self.dim_edge_proj)*self.num_head // 2, 
+                       self.dim_edge_proj*self.num_head])
         
         self.node_nonlinear_mlp = build_mlp([dim_node, dim_node, dim_node], 
                                       do_bn=use_bn, on_last=False)
@@ -1031,28 +1031,26 @@ class GeometricGATLayer(MessagePassing):
         return final_node, updated_edge, prob
 
     def message(self, x_i: Tensor, x_j: Tensor, 
-                edge_feature: Tensor, reverse_edge_feature: Tensor,
-                distance_mask: Optional[Tensor] = None) -> Tensor:
-        '''
-        x_i: 소스 노드 특징 [N, D_N]
-        x_j: 타겟 노드 특징 [N, D_N]
-        edge_feature: 정방향 에지 특징 [N, D_E]
-        reverse_edge_feature: 역방향 에지 특징 [N, D_E]
-        distance_mask: 거리 기반 마스킹 가중치 [N] (선택적)
-        '''
+            edge_feature: Tensor, reverse_edge_feature: Tensor,
+            distance_mask: Optional[Tensor] = None) -> Tensor:
         num_edge = x_i.size(0)
         
         updated_edge = self.nn_edge_update(
             torch.cat([x_i, edge_feature, reverse_edge_feature, x_j], dim=1)
         )
         
-        x_i_proj = self.proj_q(x_i).view(
-            num_edge, self.dim_node_proj, self.num_head)  # [N, D, H]
-        edge_proj = self.proj_k(edge_feature).view(
-            num_edge, self.dim_edge_proj, self.num_head)  # [N, D, H]
+        x_i_proj = self.proj_q(x_i).view(num_edge, self.dim_node_proj, self.num_head)  # [N, D, H]
+        edge_proj = self.proj_k(edge_feature).view(num_edge, self.dim_edge_proj, self.num_head)  # [N, D, H]
         x_j_val = self.proj_v(x_j)
         
-        att = self.nn_att(torch.cat([x_i_proj, edge_proj], dim=1))  # [N, D, H]
+        x_i_proj_flat = x_i_proj.reshape(num_edge, -1)
+        edge_proj_flat = edge_proj.reshape(num_edge, -1)
+        
+        combined = torch.cat([x_i_proj_flat, edge_proj_flat], dim=1)
+        
+        att_flat = self.nn_att(combined)
+        
+        att = att_flat.view(num_edge, self.dim_edge_proj, self.num_head)
         
         if distance_mask is not None:
             distance_mask = distance_mask.view(-1, 1, 1)
