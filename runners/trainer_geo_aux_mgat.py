@@ -64,15 +64,21 @@ class RoleSpecificLoss(nn.Module):
         self.device = device
         
         self.geo_projector = nn.Sequential(
-            nn.Linear(dim_geo, 64),
+            nn.Linear(dim_geo, 128),
             nn.ReLU(),
-            nn.Linear(64, 128)
+            nn.Linear(128, 512)  
         ).to(device)
         
         self.sem_projector = nn.Sequential(
-            nn.Linear(512, 512),  
+            nn.Linear(512, 512),
             nn.ReLU(),
             nn.Linear(512, 512)
+        ).to(device)
+        
+        self.geo_feature_projector = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 512)
         ).to(device)
         
         try:
@@ -178,9 +184,23 @@ class RoleSpecificLoss(nn.Module):
             all_geo_features = torch.stack(all_geo_features)
             all_geo_references = torch.stack(all_geo_references)
             
+            print(f"all_geo_features shape: {all_geo_features.shape}")
+            print(f"all_geo_references shape: {all_geo_references.shape}")
+            
+            transformed_geo_features = self.geo_feature_projector(all_geo_features)
+            
             geo_projected = self.geo_projector(all_geo_references)
             
-            geo_loss = F.mse_loss(all_geo_features, geo_projected)
+            print(f"transformed_geo_features shape: {transformed_geo_features.shape}")
+            print(f"geo_projected shape: {geo_projected.shape}")
+            
+            if transformed_geo_features.shape[1] != geo_projected.shape[1]:
+                print(f"Warning: Dimension mismatch in geo loss calculation")
+                min_dim = min(transformed_geo_features.shape[1], geo_projected.shape[1])
+                transformed_geo_features = transformed_geo_features[:, :min_dim]
+                geo_projected = geo_projected[:, :min_dim]
+            
+            geo_loss = F.mse_loss(transformed_geo_features, geo_projected)
         
         return sem_loss, geo_loss
 
