@@ -223,8 +223,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.aug_warmup_epochs = 5  # 증강 시작 에포크
         
         self.aug_strategy_weights = {
-            'centroid': 1.0,
-            'interpolation': 0.0,
+            'centroid': 0.0,
+            'interpolation': 1.0,
             'contrastive': 0.0
         }
         
