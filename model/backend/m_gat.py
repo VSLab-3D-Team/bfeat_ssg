@@ -782,9 +782,11 @@ class SemanticGATLayer(MessagePassing):
         self.nn_node_update = build_mlp([dim_node+dim_edge, dim_node+dim_edge, dim_node],
                                       do_bn=use_bn, on_last=False)
         
-        self.nn_att = build_mlp([self.dim_node_proj+self.dim_edge_proj, 
-                              self.dim_node_proj+self.dim_edge_proj,
-                              self.dim_edge_proj])
+        self.nn_att = nn.Sequential(
+            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_node_proj+self.dim_edge_proj),
+            nn.LeakyReLU(),
+            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_edge_proj)
+        )
         
         self.node_nonlinear_mlp = build_mlp([dim_node, dim_node, dim_node], 
                                       do_bn=use_bn, on_last=False)
@@ -936,9 +938,11 @@ class GeometricGATLayer(MessagePassing):
         self.nn_node_update = build_mlp([dim_node+dim_edge, dim_node+dim_edge, dim_node],
                                       do_bn=use_bn, on_last=False)
         
-        self.nn_att = build_mlp([self.dim_node_proj+self.dim_edge_proj, 
-                              self.dim_node_proj+self.dim_edge_proj,
-                              self.dim_edge_proj])
+        self.nn_att = nn.Sequential(
+            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_node_proj+self.dim_edge_proj),
+            nn.LeakyReLU(),
+            nn.Linear(self.dim_node_proj+self.dim_edge_proj, self.dim_edge_proj)
+        )
         
         self.node_nonlinear_mlp = build_mlp([dim_node, dim_node, dim_node], 
                                       do_bn=use_bn, on_last=False)
