@@ -224,8 +224,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         self.aug_strategy_weights = {
             'centroid': 0.0,
-            'interpolation': 1.0,
-            'contrastive': 0.0
+            'interpolation': 0.0,
+            'contrastive': 1.0
         }
         
         self.add_meters([
