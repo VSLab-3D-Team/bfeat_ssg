@@ -207,7 +207,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.replay_buffers = self.replay_buffer['buffers']
         
         self.total_buffer_size = 500 # 조정
-        self.min_samples_per_class = 4 # 조정
+        self.min_samples_per_class = 2 # 조정
         
         self.class_difficulty = torch.ones(self.num_rel_class, device=self.device)
         self.class_frequency = torch.zeros(self.num_rel_class, device=self.device)
@@ -582,6 +582,73 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         
         return torch.stack(augmented_features)
     
+    def _compute_tail_weights(self):
+        inv_freq = 1.0 / (self.class_frequency + 1e-6)
+        
+        tail_weights = inv_freq / inv_freq.mean()
+        
+        tail_weights = tail_weights ** 0.5
+        
+        return tail_weights
+    
+    def optimize_ensemble_weights(self):
+        self.model.eval()
+        
+        temp_weights = nn.Parameter(self.model.rel_classifier.ensemble_weights.clone())
+        optimizer = optim.Adam([temp_weights], lr=0.01)
+        
+        best_f1 = -float('inf')
+        best_weights = temp_weights.clone()
+        
+        for iter_idx in range(50):  
+            total_loss = 0
+            total_batches = 0
+            
+            for batch in self.v_dataloader:
+                obj_pts, rel_pts, descriptor, edge_2d_feats, gt_rel_label, gt_obj_label, edge_indices, edge_feat_mask, batch_ids = \
+                    self.to_device(*batch)
+                
+                obj_pts = obj_pts.transpose(2, 1).contiguous()
+                rel_pts = rel_pts.transpose(2, 1).contiguous()
+                
+                with torch.no_grad():
+                    edge_feats, _, _, _, _, _ = self.model(
+                        obj_pts, rel_pts, edge_indices.t().contiguous(), 
+                        descriptor, edge_feat_mask, batch_ids, None, edge_2d_feats
+                    )
+                    
+                    primary_pred = torch.sigmoid(self.model.rel_classifier.primary_classifier(edge_feats))
+                    auxiliary_pred = torch.sigmoid(self.model.rel_classifier.auxiliary_classifier(edge_feats))
+                
+                w = torch.sigmoid(temp_weights).unsqueeze(0)
+                combined_pred = w * primary_pred + (1 - w) * auxiliary_pred
+                
+                loss = F.binary_cross_entropy(combined_pred, gt_rel_label)
+                
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+                total_batches += 1
+            
+            avg_loss = total_loss / (total_batches + 1e-6)
+            print(f"Ensemble Weight Optimization - Iter {iter_idx}, Loss: {avg_loss:.4f}")
+            
+            if avg_loss < best_f1:
+                best_f1 = avg_loss
+                best_weights = temp_weights.clone()
+        
+        print("Applying optimized ensemble weights")
+        self.model.rel_classifier.ensemble_weights.data.copy_(best_weights.data)
+        
+        self.model.train()
+        
+        ensemble_weights = torch.sigmoid(self.model.rel_classifier.ensemble_weights).cpu().numpy()
+        for i, weight in enumerate(ensemble_weights):
+            rel_name = self.rel_label_list[i]
+            print(f"Ensemble weight for {rel_name}: {weight:.4f}")
+    
     def train(self):
 
         self.model = self.model.train()
@@ -834,9 +901,18 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                         sampled_features, sampled_classes = self._sample_from_replay_buffer(aug_batch_size)
                         
                         if sampled_features is not None and sampled_classes is not None:
+                            if hasattr(self.model.rel_classifier, 'set_training_mode'):
+                                self.model.rel_classifier.set_training_mode(primary=False, auxiliary=True)
+                            
                             augmented_features = self._apply_augmentation(sampled_features, sampled_classes)
                             
-                            aug_rel_pred = self.model.rel_classifier(augmented_features)
+                            if hasattr(self.model.rel_classifier, 'set_training_mode'):
+                                aug_rel_pred = self.model.rel_classifier(augmented_features, mode='auxiliary')
+                            else:
+                                aug_rel_pred = self.model.rel_classifier(augmented_features)
+                            
+                            if hasattr(self.model.rel_classifier, 'set_training_mode'):
+                                self.model.rel_classifier.set_training_mode(primary=True, auxiliary=True)
                             
                             if self.d_config.multi_rel:
                                 aug_gt_rel_label = torch.zeros_like(aug_rel_pred)
@@ -845,7 +921,12 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                             else:
                                 aug_gt_rel_label = F.one_hot(sampled_classes, num_classes=self.num_rel_class).float()
                             
-                            aug_rel_weight = self.__dynamic_rel_weight(aug_gt_rel_label)
+                            if hasattr(self, '_compute_tail_weights'):
+                                tail_weights = self._compute_tail_weights()
+                                aug_rel_weight = self.__dynamic_rel_weight(aug_gt_rel_label) * tail_weights
+                            else:
+                                aug_rel_weight = self.__dynamic_rel_weight(aug_gt_rel_label)
+                                
                             aug_rel_loss = F.binary_cross_entropy(aug_rel_pred, aug_gt_rel_label, weight=aug_rel_weight)
                             
                             aug_weight = min(1.0, (e - self.aug_warmup_epochs + 1) / 10.0)
@@ -925,6 +1006,10 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             
             self.replay_buffer['update_class_difficulty'](self.class_accuracy)
             self.replay_buffer['update_class_frequency'](class_counts)
+
+            if e % 5 == 0 and e >= self.aug_warmup_epochs and hasattr(self.model.rel_classifier, 'ensemble_weights'):
+                if hasattr(self, 'optimize_ensemble_weights'):
+                    self.optimize_ensemble_weights()
         
             self.lr_scheduler.step()
             if e % self.t_config.evaluation_interval == 0:
@@ -942,6 +1027,12 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             self.wandb_log["Train/Augmentation_Ratio"] = self.aug_batch_ratio
             self.wandb_log["Train/Class_Accuracy_Mean"] = self.meters['Train/Class_Accuracy_Mean'].avg
             self.wandb_log["Train/Class_Accuracy_Min"] = self.meters['Train/Class_Accuracy_Min'].avg
+
+            if hasattr(self.model.rel_classifier, 'ensemble_weights'):
+                ensemble_weights = torch.sigmoid(self.model.rel_classifier.ensemble_weights).cpu().numpy()
+                for i, weight in enumerate(ensemble_weights):
+                    rel_name = self.rel_label_list[i]
+                    self.wandb_log[f"Ensemble_Weight/{rel_name}"] = weight
             
             if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                 self.wandb_log["Train/Triplet_Loss"] = self.meters['Train/Triplet_Loss'].avg
@@ -967,6 +1058,10 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             # if hasattr(self.model, 'set_inference_mode'):
             #     self.model.set_inference_mode()
             self.model = self.model.eval()
+
+            if hasattr(self, 'optimize_ensemble_weights') and hasattr(self.t_config, 'optimize_ensemble_before_eval') and self.t_config.optimize_ensemble_before_eval:
+                self.optimize_ensemble_weights()
+
             for idx, (
                 obj_pts, 
                 rel_pts, 
@@ -1004,6 +1099,10 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     obj_pts, rel_pts, edge_indices.t().contiguous(), descriptor, edge_feat_mask, batch_ids, None,  # attn_tfidf_weight
                     edge_2d_feats
                 )
+
+                if hasattr(self.model.rel_classifier, 'primary_classifier') and hasattr(self.model.rel_classifier, 'auxiliary_classifier'):
+                    pass
+
                 top_k_obj = evaluate_topk_object(obj_pred.detach(), gt_obj_label, topk=11)
                 gt_edges = get_gt(gt_obj_label, gt_rel_label, edge_indices, self.d_config.multi_rel)
                 top_k_rel = evaluate_topk_predicate(rel_pred.detach(), gt_edges, self.d_config.multi_rel, topk=6)
@@ -1049,6 +1148,12 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
             rel_scores_list = np.stack(rel_scores_list)
             mean_recall = get_mean_recall(topk_triplet_list, cls_matrix_list)
             # obj_mean_recall = get_obj_mean_recall(topk_obj_list, cls_matrix_list)
+
+            if hasattr(self.model.rel_classifier, 'ensemble_weights'):
+                ensemble_weights = torch.sigmoid(self.model.rel_classifier.ensemble_weights).cpu().numpy()
+                for i, weight in enumerate(ensemble_weights):
+                    rel_name = self.rel_label_list[i]
+                    self.wandb_log[f"Validation/Ensemble_Weight/{rel_name}"] = weight
             
             obj_acc_1 = (topk_obj_list <= 1).sum() * 100 / len(topk_obj_list)
             obj_acc_5 = (topk_obj_list <= 5).sum() * 100 / len(topk_obj_list)

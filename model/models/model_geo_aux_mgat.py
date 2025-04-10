@@ -9,6 +9,59 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class DualRelationClassifier(nn.Module):
+    def __init__(self, n_rel_cls, dim_edge_feats, device='cuda'):
+        super().__init__()
+        
+        self.primary_classifier = nn.Sequential(
+            nn.Linear(dim_edge_feats, dim_edge_feats // 2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(dim_edge_feats // 2, n_rel_cls)
+        ).to(device)
+        
+        self.auxiliary_classifier = nn.Sequential(
+            nn.Linear(dim_edge_feats, dim_edge_feats // 2),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(dim_edge_feats // 2, n_rel_cls)
+        ).to(device)
+        
+        self.ensemble_weights = nn.Parameter(torch.zeros(n_rel_cls))
+        
+        self.register_buffer('class_frequency', torch.ones(n_rel_cls))
+        
+        self.training_primary = True
+        self.training_auxiliary = True
+    
+    def update_class_frequency(self, frequency):
+        self.class_frequency.copy_(frequency)
+        
+        normalized_freq = frequency / (frequency.sum() + 1e-8)
+        initial_weights = torch.log(normalized_freq + 1e-5)
+        self.ensemble_weights.data.copy_(initial_weights)
+    
+    def set_training_mode(self, primary=True, auxiliary=True):
+        self.training_primary = primary
+        self.training_auxiliary = auxiliary
+    
+    def forward(self, x, mode='combined'):
+        
+        if mode == 'primary' or (self.training and self.training_primary and not self.training_auxiliary):
+            return torch.sigmoid(self.primary_classifier(x))
+        
+        elif mode == 'auxiliary' or (self.training and not self.training_primary and self.training_auxiliary):
+            return torch.sigmoid(self.auxiliary_classifier(x))
+        
+        else:  # mode == 'combined' (기본값)
+            primary_pred = torch.sigmoid(self.primary_classifier(x))
+            auxiliary_pred = torch.sigmoid(self.auxiliary_classifier(x))
+            
+            w = torch.sigmoid(self.ensemble_weights).unsqueeze(0)
+            
+            combined_pred = w * primary_pred + (1 - w) * auxiliary_pred
+            return combined_pred
+
 class BFeatGeoAuxMGATNet(BaseNetwork):
     def __init__(self, config, n_obj_cls, n_rel_class, device):
         super(BFeatGeoAuxMGATNet, self).__init__()
@@ -111,7 +164,12 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             ).to(self.device)
         
         self.obj_classifier = ObjectClsMulti(n_obj_cls, self.m_config.dim_obj_feats).to(self.device)
-        self.rel_classifier = RelationClsMulti(n_rel_class, self.m_config.dim_edge_feats).to(self.device)
+        # self.rel_classifier = RelationClsMulti(n_rel_class, self.m_config.dim_edge_feats).to(self.device)
+        self.rel_classifier = DualRelationClassifier(
+            n_rel_class, 
+            self.m_config.dim_edge_feats,
+            device=self.device
+        )
         
         self._initialize_geo_enhancer()
         
@@ -260,7 +318,11 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             )
         
         obj_pred = self.obj_classifier(obj_gnn_feats)
-        rel_pred = self.rel_classifier(edge_gnn_feats)
+        # rel_pred = self.rel_classifier(edge_gnn_feats)
+        if self.training:
+            rel_pred = self.rel_classifier(edge_gnn_feats)  # 기본 모드 사용
+        else:
+            rel_pred = self.rel_classifier(edge_gnn_feats, mode='combined')
         
         pred_edge_clip, pred_geo_desc = \
             self.proj_clip_edge(edge_feats[edge_feat_mask, ...]), self.proj_geo_desc(edge_feats)

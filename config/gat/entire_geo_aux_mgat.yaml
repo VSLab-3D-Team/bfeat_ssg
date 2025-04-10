@@ -39,6 +39,7 @@ train:
   lambda_edge: 0.0 # edge loss
   oversampling: false
   seed: 2828
+  optimize_ensemble_before_eval: true
 
 model:
   num_graph_update: 2 # 1
