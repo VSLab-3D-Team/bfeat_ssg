@@ -63,9 +63,17 @@ class RoleSpecificLoss(nn.Module):
         self.rel_label_list = rel_label_list
         self.device = device
         
-        self.geo_projector = build_mlp([dim_geo, 64, 128], do_bn=True)
+        self.geo_projector = nn.Sequential(
+            nn.Linear(dim_geo, 64),
+            nn.ReLU(),
+            nn.Linear(64, 128)
+        ).to(device)
         
-        self.sem_projector = build_mlp([512, 256, 128], do_bn=True)
+        self.sem_projector = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128)
+        ).to(device)
         
         try:
             self.clip_text_encoder = CLIPTextEncoder(device=device).to(device)
@@ -91,7 +99,6 @@ class RoleSpecificLoss(nn.Module):
         return embedding
     
     def forward(self, sem_node_feat, sem_edge_feat, geo_node_feat, geo_edge_feat, obj_pred, rel_pred, edge_indices, geo_desc):
-       
         batch_size = min(64, edge_indices.shape[0])
         if batch_size == 0:
             return torch.tensor(0.0, device=self.device), torch.tensor(0.0, device=self.device)
@@ -101,9 +108,6 @@ class RoleSpecificLoss(nn.Module):
         
         subject_indices = sampled_edges[:, 0]
         object_indices = sampled_edges[:, 1]
-        
-        print(f"sem_node_feat shape: {sem_node_feat.shape}")
-        print(f"sem_edge_feat shape: {sem_edge_feat.shape}")
         
         sem_loss = 0.0
         if self.clip_text_encoder is not None:
@@ -118,6 +122,9 @@ class RoleSpecificLoss(nn.Module):
             object_cls_idx = object_cls_pred.argmax(dim=1)
             relation_cls_idx = relation_cls_pred.argmax(dim=1)
             
+            all_sem_features = []
+            all_text_embs = []
+            
             for i in range(batch_size):
                 subject_name = self.obj_label_list[subject_cls_idx[i]]
                 object_name = self.obj_label_list[object_cls_idx[i]]
@@ -128,62 +135,44 @@ class RoleSpecificLoss(nn.Module):
                     {"subj": subject_name, "pred": relation_name, "obj": object_name}
                 )
                 
-                sem_node_i = sem_node_feat[subject_indices[i]].unsqueeze(0)
-                sem_node_j = sem_node_feat[object_indices[i]].unsqueeze(0)
-                sem_edge_ij = sem_edge_feat[sample_indices[i]].unsqueeze(0)
+                sem_node_i = sem_node_feat[subject_indices[i]]
+                sem_node_j = sem_node_feat[object_indices[i]]
+                sem_edge_ij = sem_edge_feat[sample_indices[i]]
                 
-                print(f"sem_node_i shape: {sem_node_i.shape}")
-                print(f"sem_node_j shape: {sem_node_j.shape}")
-                print(f"sem_edge_ij shape: {sem_edge_ij.shape}")
+                sem_feature = sem_edge_ij
                 
-                sem_node_i_proj = sem_node_i
-                sem_node_j_proj = sem_node_j
-                sem_edge_ij_proj = sem_edge_ij
-                
-                if not hasattr(self, 'node_proj') or self.node_proj.in_features != sem_node_i.shape[1]:
-                    self.node_proj = nn.Linear(sem_node_i.shape[1], 128).to(self.device)
-                    self.edge_proj = nn.Linear(sem_edge_ij.shape[1], 256).to(self.device)
-                
-                sem_node_i_proj = self.node_proj(sem_node_i)
-                sem_node_j_proj = self.node_proj(sem_node_j)
-                sem_edge_ij_proj = self.edge_proj(sem_edge_ij)
-                
-                sem_combined = torch.cat([sem_node_i_proj, sem_edge_ij_proj, sem_node_j_proj], dim=1)
-                
-                print(f"sem_combined shape: {sem_combined.shape}")
-                
-                sem_projected = self.sem_projector(sem_combined)
-                
-                sem_loss += (1 - F.cosine_similarity(sem_projected, text_emb)).mean()
+                all_sem_features.append(sem_feature)
+                all_text_embs.append(text_emb.squeeze(0))
             
-            sem_loss = sem_loss / batch_size
+            if all_sem_features:
+                all_sem_features = torch.stack(all_sem_features)
+                all_text_embs = torch.stack(all_text_embs)
+                
+                sem_projected = self.sem_projector(all_sem_features)
+                
+                sem_loss = (1 - F.cosine_similarity(sem_projected, all_text_embs, dim=1)).mean()
         
         geo_loss = 0.0
-        for i in range(batch_size):
-            geo_node_i = geo_node_feat[subject_indices[i]].unsqueeze(0)
-            geo_node_j = geo_node_feat[object_indices[i]].unsqueeze(0)
-            geo_edge_ij = geo_edge_feat[sample_indices[i]].unsqueeze(0)
-            
-            print(f"geo_node_i shape: {geo_node_i.shape}")
-            print(f"geo_node_j shape: {geo_node_j.shape}")
-            print(f"geo_edge_ij shape: {geo_edge_ij.shape}")
-            
-            if not hasattr(self, 'geo_node_proj') or self.geo_node_proj.in_features != geo_node_i.shape[1]:
-                self.geo_node_proj = nn.Linear(geo_node_i.shape[1], 32).to(self.device)
-                self.geo_edge_proj = nn.Linear(geo_edge_ij.shape[1], 64).to(self.device)
-            
-            geo_node_i_proj = self.geo_node_proj(geo_node_i)
-            geo_node_j_proj = self.geo_node_proj(geo_node_j)
-            geo_edge_ij_proj = self.geo_edge_proj(geo_edge_ij)
-            
-            geo_combined = torch.cat([geo_node_i_proj, geo_edge_ij_proj, geo_node_j_proj], dim=1)
-            
-            geo_reference = geo_desc[sample_indices[i]].unsqueeze(0)
-            geo_projected = self.geo_projector(geo_reference)
-            
-            geo_loss += F.mse_loss(geo_combined, geo_projected)
+        all_geo_features = []
+        all_geo_references = []
         
-        geo_loss = geo_loss / batch_size
+        for i in range(batch_size):
+            geo_edge_ij = geo_edge_feat[sample_indices[i]]
+            
+            geo_feature = geo_edge_ij
+            
+            geo_reference = geo_desc[sample_indices[i]]
+            
+            all_geo_features.append(geo_feature)
+            all_geo_references.append(geo_reference)
+        
+        if all_geo_features:
+            all_geo_features = torch.stack(all_geo_features)
+            all_geo_references = torch.stack(all_geo_references)
+            
+            geo_projected = self.geo_projector(all_geo_references)
+            
+            geo_loss = F.mse_loss(all_geo_features, geo_projected)
         
         return sem_loss, geo_loss
 
