@@ -592,62 +592,86 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         return tail_weights
     
     def optimize_ensemble_weights(self):
+        val_loader = torch.utils.data.DataLoader(
+            self.v_dataset, batch_size=4, shuffle=True, num_workers=2
+        )
+        
+        obj_weights = torch.tensor([0.33, 0.33, 0.34], requires_grad=True, device=self.device)
+        rel_weights = torch.tensor([0.33, 0.33, 0.34], requires_grad=True, device=self.device)
+        
+        weight_optimizer = torch.optim.Adam([obj_weights, rel_weights], lr=0.01)
+        
         self.model.eval()
         
-        temp_weights = nn.Parameter(self.model.rel_classifier.ensemble_weights.clone())
-        optimizer = optim.Adam([temp_weights], lr=0.01)
-        
-        best_f1 = -float('inf')
-        best_weights = temp_weights.clone()
-        
-        for iter_idx in range(50):  
-            total_loss = 0
-            total_batches = 0
+        for epoch in range(5):
+            total_loss = 0.0
+            batch_count = 0
             
-            for batch in self.v_dataloader:
-                obj_pts, rel_pts, descriptor, edge_2d_feats, gt_rel_label, gt_obj_label, edge_indices, edge_feat_mask, batch_ids = \
-                    self.to_device(*batch)
+            for batch in val_loader:
+                (obj_pts, rel_pts, descriptor, edge_2d_feats, 
+                gt_rel_label, gt_obj_label, edge_indices, edge_feat_mask, batch_ids) = self.to_device(*batch)
                 
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
                 
+                weight_optimizer.zero_grad()
+                
                 with torch.no_grad():
-                    edge_feats, _, _, _, _, _ = self.model(
+                    _, obj_pred, rel_pred, _, _, _ = self.model(
                         obj_pts, rel_pts, edge_indices.t().contiguous(), 
                         descriptor, edge_feat_mask, batch_ids, None, edge_2d_feats
                     )
                     
-                    primary_pred = torch.sigmoid(self.model.rel_classifier.primary_classifier(edge_feats))
-                    auxiliary_pred = torch.sigmoid(self.model.rel_classifier.auxiliary_classifier(edge_feats))
+                    if self.m_config.gat_type == "dual" and hasattr(self.model, 'all_obj_preds'):
+                        sem_obj_pred, geo_obj_pred, final_obj_pred = self.model.all_obj_preds
+                        sem_rel_pred, geo_rel_pred, final_rel_pred = self.model.all_rel_preds
+                    else:
+                        sem_obj_pred = geo_obj_pred = final_obj_pred = obj_pred
+                        sem_rel_pred = geo_rel_pred = final_rel_pred = rel_pred
                 
-                w = torch.sigmoid(temp_weights).unsqueeze(0)
-                combined_pred = w * primary_pred + (1 - w) * auxiliary_pred
+                norm_obj_weights = F.softmax(obj_weights, dim=0)
+                norm_rel_weights = F.softmax(rel_weights, dim=0)
                 
-                loss = F.binary_cross_entropy(combined_pred, gt_rel_label)
+                ensemble_obj_pred = (
+                    norm_obj_weights[0] * sem_obj_pred + 
+                    norm_obj_weights[1] * geo_obj_pred + 
+                    norm_obj_weights[2] * final_obj_pred
+                )
                 
-                optimizer.zero_grad()
+                ensemble_rel_pred = (
+                    norm_rel_weights[0] * sem_rel_pred + 
+                    norm_rel_weights[1] * geo_rel_pred + 
+                    norm_rel_weights[2] * final_rel_pred
+                )
+                
+                obj_loss = F.cross_entropy(ensemble_obj_pred, gt_obj_label)
+                rel_loss = F.binary_cross_entropy(ensemble_rel_pred, gt_rel_label)
+                
+                loss = obj_loss + rel_loss
+                
                 loss.backward()
-                optimizer.step()
+                weight_optimizer.step()
                 
                 total_loss += loss.item()
-                total_batches += 1
+                batch_count += 1
+                
+                if batch_count >= 10:
+                    break
             
-            avg_loss = total_loss / (total_batches + 1e-6)
-            print(f"Ensemble Weight Optimization - Iter {iter_idx}, Loss: {avg_loss:.4f}")
-            
-            if avg_loss < best_f1:
-                best_f1 = avg_loss
-                best_weights = temp_weights.clone()
+            avg_loss = total_loss / batch_count
+            print(f"Ensemble Weight Optimization - Epoch {epoch+1}/5, Loss: {avg_loss:.4f}")
+            print(f"Obj Weights: {norm_obj_weights.detach().cpu().numpy()}")
+            print(f"Rel Weights: {norm_rel_weights.detach().cpu().numpy()}")
         
-        print("Applying optimized ensemble weights")
-        self.model.rel_classifier.ensemble_weights.data.copy_(best_weights.data)
+        self.ensemble_obj_weights = norm_obj_weights.detach()
+        self.ensemble_rel_weights = norm_rel_weights.detach()
+        
+        print(f"Final Optimized Weights:")
+        print(f"Obj Weights: {self.ensemble_obj_weights.cpu().numpy()}")
+        print(f"Rel Weights: {self.ensemble_rel_weights.cpu().numpy()}")
         
         self.model.train()
-        
-        ensemble_weights = torch.sigmoid(self.model.rel_classifier.ensemble_weights).cpu().numpy()
-        for i, weight in enumerate(ensemble_weights):
-            rel_name = self.rel_label_list[i]
-            print(f"Ensemble weight for {rel_name}: {weight:.4f}")
+
     
     def train(self):
 
