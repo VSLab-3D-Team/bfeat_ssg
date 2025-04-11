@@ -579,7 +579,7 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         self.use_node_attention = kwargs.get('use_node_attention', False)
         self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.0)
         self.use_geometric_enhancer = kwargs.get('use_geometric_enhancer', False)
-        self.use_lambda_control = kwargs.get('use_lambda_control', False)
+        self.use_lambda_control = kwargs.get('use_lambda_control', True)
         
         if self.use_lambda_control:
             self.node_lambdas = torch.nn.ParameterList([
