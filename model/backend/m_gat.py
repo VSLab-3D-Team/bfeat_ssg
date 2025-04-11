@@ -578,7 +578,7 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         self.use_distance_mask = kwargs.get('use_distance_mask', True)
         self.use_node_attention = kwargs.get('use_node_attention', False)
         self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.0)
-        self.use_geometric_enhancer = kwargs.get('use_geometric_enhancer', True)
+        self.use_geometric_enhancer = kwargs.get('use_geometric_enhancer', False)
 
         self.gconvs = torch.nn.ModuleList()
         self.drop_out = None
