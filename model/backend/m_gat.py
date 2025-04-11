@@ -354,7 +354,7 @@ class BidirectionalEdgeLayer(MessagePassing):
         
         return output
 
-    def forward(self, x, edge_feature, edge_index, node_positions=None):
+    def forward(self, x, edge_feature, edge_index, node_positions=None, p_mask=0.4):
         row, col = edge_index
         
         edge_id_mapping = {}
@@ -412,6 +412,13 @@ class BidirectionalEdgeLayer(MessagePassing):
         
         twin_edge_attention = torch.zeros((x.size(0), self.dim_edge*2), device=x.device)
         
+        if self.training:
+            outgoing_mask = (torch.rand(x.size(0)) > p_mask).to(x.device)
+            incoming_mask = (torch.rand(x.size(0)) > p_mask).to(x.device)
+        else:
+            outgoing_mask = torch.ones(x.size(0), device=x.device)
+            incoming_mask = torch.ones(x.size(0), device=x.device)
+        
         for node_id in range(x.size(0)):
             outgoing_feature = torch.zeros(self.dim_edge, device=x.device)
             if node_id in outgoing_edges:
@@ -419,6 +426,7 @@ class BidirectionalEdgeLayer(MessagePassing):
                     outgoing_feature += updated_edge[edge_idx]
                 if len(outgoing_edges[node_id]) > 0:
                     outgoing_feature /= len(outgoing_edges[node_id])
+            outgoing_feature = outgoing_feature * outgoing_mask[node_id]
             
             incoming_feature = torch.zeros(self.dim_edge, device=x.device)
             if node_id in incoming_edges:
@@ -426,6 +434,7 @@ class BidirectionalEdgeLayer(MessagePassing):
                     incoming_feature += updated_edge[edge_idx]
                 if len(incoming_edges[node_id]) > 0:
                     incoming_feature /= len(incoming_edges[node_id])
+            incoming_feature = incoming_feature * incoming_mask[node_id]
             
             twin_edge_attention[node_id] = torch.cat([outgoing_feature, incoming_feature], dim=0)
         
@@ -555,7 +564,8 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         super().__init__()
         self.num_layers = kwargs['num_layers']
         self.use_distance_mask = kwargs.get('use_distance_mask', True)
-        self.use_node_attention = kwargs.get('use_node_attention', True)
+        self.use_node_attention = kwargs.get('use_node_attention', False)
+        self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.4)
 
         self.gconvs = torch.nn.ModuleList()
         self.drop_out = None
@@ -580,7 +590,7 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         for i in range(self.num_layers):
             gconv = self.gconvs[i]
             node_feature, edge_feature, prob = gconv(
-                node_feature, edge_feature, edges_indices, node_positions
+                node_feature, edge_feature, edges_indices, node_positions, p_mask=self.edge_mask_prob
             )
 
             if i < (self.num_layers-1) or self.num_layers == 1:
