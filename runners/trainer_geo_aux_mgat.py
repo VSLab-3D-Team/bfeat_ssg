@@ -52,6 +52,22 @@ class TripletProjector(nn.Module):
     def forward(self, subj_feat, obj_feat, rel_feat):
         combined = torch.cat([subj_feat, rel_feat, obj_feat], dim=1)
         return self.proj(combined)
+    
+class GATGeoProjector(nn.Module):
+    def __init__(self, edge_dim, geo_dim=11):
+        super().__init__()
+        self.projector = nn.Sequential(
+            nn.Linear(edge_dim, edge_dim * 2),
+            nn.BatchNorm1d(edge_dim * 2),
+            nn.ReLU(),
+            nn.Linear(edge_dim * 2, edge_dim),
+            nn.BatchNorm1d(edge_dim),
+            nn.ReLU(),
+            nn.Linear(edge_dim, geo_dim)
+        )
+    
+    def forward(self, edge_features):
+        return self.projector(edge_features)
 
 class BFeatGeoAuxMGATTrainer(BaseTrainer):
     def __init__(self, config, device):
@@ -87,6 +103,13 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.c_criterion = MultiLabelInfoNCELoss(device=self.device, temperature=self.t_config.loss_temperature).to(self.device)
         self.tfidf = TFIDFMaskLayer(self.num_obj_class, self.device)
         self.w_edge = TFIDFTripletWeight(self.num_obj_class, self.num_rel_class, self.device)
+
+        edge_dim = self.m_config.dim_edge_feats
+        self.gat_geo_projector = GATGeoProjector(edge_dim, geo_dim=11).to(device)
+        
+        self.lambda_gat_geo = getattr(self.t_config, 'lambda_gat_geo', 1.0)
+        self.use_gat_geo_loss = True
+        print(f"GAT-Geo alignment loss initialization success. (Weight: {self.lambda_gat_geo})")
         
         try:
             self.clip_text_encoder = CLIPTextEncoder(device=device).to(device)
@@ -136,6 +159,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
         self.add_meters([
             "Train/Geo_Aux_Loss",
             "Train/Edge_CLIP_Aux_Loss",
+            "Train/GAT_Geo_Loss",
         ])
         self.del_meters([
             "Train/Contrastive_Loss"
@@ -232,6 +256,35 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.optimizer.zero_grad()
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
+
+                # 기하학적 관계 정보 추출 (에지별)
+                geo_features = None
+                if descriptor is not None:
+                    node_positions = descriptor[:, :3]
+                    
+                    # 에지별 기하학적 특징 계산
+                    row, col = edge_indices
+                    geo_features = []
+                    for i, j in zip(row, col):
+                        i, j = i.item(), j.item()
+                        pos_i, pos_j = node_positions[i], node_positions[j]
+                        diff = pos_i - pos_j
+                        dist = torch.norm(diff, p=2)
+                        # 11차원 기하학적 특징 (위치 차이 벡터, 거리, 상대적 방향 등)
+                        geo_feat = torch.cat([
+                            diff,                     # 위치 차이 (3)
+                            dist.unsqueeze(0),        # 유클리드 거리 (1)
+                            diff / (dist + 1e-10),    # 정규화된 방향 (3)
+                            torch.tensor([
+                                diff[0] > 0,          # x 방향 관계 (1)
+                                diff[1] > 0,          # y 방향 관계 (1)
+                                diff[2] > 0,          # z 방향 관계 (1)
+                                dist < torch.median(dist)  # 근접성 (1)
+                            ], device=diff.device).float()
+                        ], dim=0)
+                        geo_features.append(geo_feat)
+                    
+                    geo_features = torch.stack(geo_features)
                 
                 # TF-IDF Attention Mask Generation
                 attn_tfidf_weight = None # self.w_edge.get_mask(gt_obj_label, gt_rel_label, edge_indices, batch_ids)
@@ -252,6 +305,21 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 
                 geo_aux_loss = F.l1_loss(pred_geo_desc, edge_desc)
                 edge_clip_aux_loss = self.cosine_loss(pred_edge_clip, edge_2d_feats)
+
+                # GAT-Geo 정렬 손실 계산
+                gat_geo_loss = torch.tensor(0.0, device=self.device)
+                if self.use_gat_geo_loss and geo_features is not None:
+                    try:
+                        # GAT 에지 특성을 기하학적 특성 차원으로 투영
+                        projected_gat_features = self.gat_geo_projector(edge_feats)
+                        
+                        # L1 손실 사용하여 GAT 에지 특성과 기하학적 특성 정렬
+                        gat_geo_loss = F.l1_loss(projected_gat_features, geo_features)
+                        
+                        self.meters['Train/GAT_Geo_Loss'].update(gat_geo_loss.detach().item())
+                    except Exception as e:
+                        print(f"Error during GAT-Geo loss calculation: {str(e)}")
+                        gat_geo_loss = torch.tensor(0.0, device=self.device)
                 
                 triplet_loss = torch.tensor(0.0, device=self.device)
                 edge_text_loss = torch.tensor(0.0, device=self.device)
@@ -409,6 +477,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 lambda_t = self.t_config.lambda_triplet
                 lambda_e = self.t_config.lambda_edge
                 lambda_t_a = self.t_config.lambda_text_aux
+                lambda_gat_geo = self.lambda_gat_geo
                 # lambda_c = self.t_config.lambda_con # 0.1
                 # + lambda_c * contrastive_loss \
                     
@@ -419,7 +488,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     + lambda_v * edge_clip_aux_loss \
                     + lambda_t * triplet_loss \
                     + lambda_e * edge_text_loss \
-                    + lambda_t_a * edge_text_aux_loss
+                    + lambda_t_a * edge_text_aux_loss \
+                    + lambda_gat_geo * gat_geo_loss
                 t_loss.backward()
                 self.optimizer.step()
                 self.meters['Train/Total_Loss'].update(t_loss.detach().item())
@@ -427,7 +497,8 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 self.meters['Train/Rel_Cls_Loss'].update(c_rel_loss.detach().item()) 
                 # self.meters['Train/Contrastive_Loss'].update(contrastive_loss.detach().item()) 
                 self.meters['Train/Geo_Aux_Loss'].update(geo_aux_loss.detach().item()) 
-                self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item()) 
+                self.meters['Train/Edge_CLIP_Aux_Loss'].update(edge_clip_aux_loss.detach().item())
+                self.meters['Train/GAT_Geo_Loss'].update(gat_geo_loss.detach().item()) 
                 self.meters['Train/Triplet_Loss'].update(triplet_loss.detach().item())
                 self.meters['Train/Edge_Text_Loss'].update(edge_text_loss.detach().item())
                 self.meters['Train/Edge_Text_Aux_Loss'].update(edge_text_aux_loss.detach().item())
@@ -436,6 +507,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     ("train/obj_loss", c_obj_loss.detach().item()),
                     # ("train/contrastive_loss", contrastive_loss.detach().item()),
                     ("train/total_loss", t_loss.detach().item()),
+                    ("train/gat_geo_loss", gat_geo_loss.detach().item()),
                 ]
                 
                 if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
@@ -468,6 +540,7 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                     self.save_checkpoint(self.exp_name, 'ckpt_epoch_{epoch}.pth'.format(epoch=e))
             
             self.wandb_log["Train/learning_rate"] = self.lr_scheduler.get_last_lr()[0]
+            self.wandb_log["Train/GAT_Geo_Loss"] = self.meters['Train/GAT_Geo_Loss'].avg
             if hasattr(self, 'use_triplet_loss') and self.use_triplet_loss:
                 self.wandb_log["Train/Triplet_Loss"] = self.meters['Train/Triplet_Loss'].avg
             if hasattr(self, 'use_edge_loss') and self.use_edge_loss:
