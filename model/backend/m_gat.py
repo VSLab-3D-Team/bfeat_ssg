@@ -54,6 +54,18 @@ def filter_args_create(func, keys):
     """
     return func(**filter_args(func, keys))
 
+class GeometricEnhancer(nn.Module):
+    def __init__(self, dim_node: int, dim_edge: int, dim_geo: int = 11):
+        super().__init__()
+        self.node_enhancer = build_mlp([dim_node, dim_node * 2, dim_node], do_bn=True)
+        self.edge_enhancer = build_mlp([dim_edge + dim_geo, dim_edge * 2, dim_edge], do_bn=True)
+        
+    def forward(self, node_features, edge_features, geo_features):
+        enhanced_nodes = self.node_enhancer(node_features)
+        edge_with_geo = torch.cat([edge_features, geo_features], dim=1)
+        enhanced_edges = self.edge_enhancer(edge_with_geo)
+        return enhanced_nodes, enhanced_edges
+
 class MSG_FAN_EDGE_UPDATE(MessagePassing):
     def __init__(self,
                  dim_node: int, dim_edge: int, dim_atten: int,
@@ -354,7 +366,7 @@ class BidirectionalEdgeLayer(MessagePassing):
         
         return output
 
-    def forward(self, x, edge_feature, edge_index, node_positions=None, p_mask=0.4):
+    def forward(self, x, edge_feature, edge_index, node_positions=None, p_mask=0.0):
         row, col = edge_index
         
         edge_id_mapping = {}
@@ -565,7 +577,8 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         self.num_layers = kwargs['num_layers']
         self.use_distance_mask = kwargs.get('use_distance_mask', True)
         self.use_node_attention = kwargs.get('use_node_attention', False)
-        self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.4)
+        self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.0)
+        self.use_geometric_enhancer = kwargs.get('use_geometric_enhancer', True)
 
         self.gconvs = torch.nn.ModuleList()
         self.drop_out = None
@@ -573,6 +586,13 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
             self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
 
         kwargs['use_node_attention'] = self.use_node_attention
+
+        if self.use_geometric_enhancer:
+            self.geo_enhancer = GeometricEnhancer(
+                dim_node=kwargs['dim_node'],
+                dim_edge=kwargs['dim_edge'],
+                dim_geo=11
+            )
         
         for _ in range(self.num_layers):
             self.gconvs.append(filter_args_create(BidirectionalEdgeLayer, kwargs))
@@ -584,8 +604,36 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         edges_indices = edges_indices
         
         node_positions = None
-        if (self.use_distance_mask or self.use_node_attention) and descriptor is not None:
+        geo_features = None
+
+        if descriptor is not None and (self.use_distance_mask or self.use_node_attention or self.use_geometric_enhancer):
             node_positions = descriptor[:, :3]
+            
+            if self.use_geometric_enhancer:
+                row, col = edges_indices
+                geo_features = []
+                for i, j in zip(row, col):
+                    i, j = i.item(), j.item()
+                    pos_i, pos_j = node_positions[i], node_positions[j]
+                    diff = pos_i - pos_j
+                    dist = torch.norm(diff, p=2)
+                    
+                    geo_feat = torch.cat([
+                        diff,                     # 위치 차이 (3차원)
+                        dist.unsqueeze(0),        # 유클리드 거리 (1차원)
+                        diff / (dist + 1e-10),    # 정규화된 방향 (3차원)
+                        torch.tensor([
+                            diff[0] > 0,          # x 방향 관계 (1차원)
+                            diff[1] > 0,          # y 방향 관계 (1차원)
+                            diff[2] > 0,          # z 방향 관계 (1차원)
+                            dist < torch.median(torch.tensor([dist]))  # 근접성 (1차원)
+                        ], device=diff.device).float()
+                    ], dim=0)
+                    geo_features.append(geo_feat)
+                
+                geo_features = torch.stack(geo_features)
+                
+                node_feature, edge_feature = self.geo_enhancer(node_feature, edge_feature, geo_features)
         
         for i in range(self.num_layers):
             gconv = self.gconvs[i]
