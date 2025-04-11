@@ -30,7 +30,7 @@ train:
   sampler: 'frequency'
   freq_temperature: 0.3 # 0.5, 2
   loss_temperature: 0.3
-  lambda_obj: 0.1
+  lambda_obj: 1.0
   lambda_rel: 1.0
   lambda_geo: 1.0
   lambda_view: 0.3
