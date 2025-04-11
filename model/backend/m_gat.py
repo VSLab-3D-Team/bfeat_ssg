@@ -504,9 +504,7 @@ class BidirectionalEdgeLayer(MessagePassing):
     def update(self, inputs, x_ori):
         weighted_value, updated_edge, prob = inputs
         
-        updated_node = self.nn_node_update(
-            torch.cat([x_ori, weighted_value], dim=1)
-        )
+        updated_node = x_ori + weighted_value
         
         return updated_node, updated_edge, prob
     
