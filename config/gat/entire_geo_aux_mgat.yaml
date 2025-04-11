@@ -37,7 +37,7 @@ train:
   lambda_text_aux: 0.0 # text_clip loss
   lambda_triplet: 0.0 # triplet loss
   lambda_edge: 0.0 # edge loss
-  lambda_gat_geo: 0.0
+  lambda_gat_geo: 0.0 # geo_gat loss
   oversampling: false
   seed: 2828
 
