@@ -257,20 +257,26 @@ class BFeatGeoAuxMGATTrainer(BaseTrainer):
                 obj_pts = obj_pts.transpose(2, 1).contiguous()
                 rel_pts = rel_pts.transpose(2, 1).contiguous()
 
-                # 기하학적 관계 정보 추출 (에지별)
                 geo_features = None
                 if descriptor is not None:
                     node_positions = descriptor[:, :3]
                     
-                    # 에지별 기하학적 특징 계산
-                    row, col = edge_indices
+                    if edge_indices.dim() == 2 and edge_indices.size(1) == 2:
+                        source_nodes = edge_indices[:, 0]
+                        target_nodes = edge_indices[:, 1]
+                    elif edge_indices.dim() == 2 and edge_indices.size(0) == 2:
+                        source_nodes = edge_indices[0]
+                        target_nodes = edge_indices[1]
+                    else:
+                        print(f"Unexpected edge_indices shape: {edge_indices.shape}")
+                        raise ValueError(f"Unsupported edge_indices shape: {edge_indices.shape}")
+                    
                     geo_features = []
-                    for i, j in zip(row, col):
+                    for i, j in zip(source_nodes, target_nodes):
                         i, j = i.item(), j.item()
                         pos_i, pos_j = node_positions[i], node_positions[j]
                         diff = pos_i - pos_j
                         dist = torch.norm(diff, p=2)
-                        # 11차원 기하학적 특징 (위치 차이 벡터, 거리, 상대적 방향 등)
                         geo_feat = torch.cat([
                             diff,                     # 위치 차이 (3)
                             dist.unsqueeze(0),        # 유클리드 거리 (1)
