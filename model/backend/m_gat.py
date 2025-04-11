@@ -304,7 +304,7 @@ class BidirectionalEdgeLayer(MessagePassing):
             self.node_self_attn_k = build_mlp([dim_node, dim_node], do_bn=use_bn)
             self.node_self_attn_v = build_mlp([dim_node, dim_node], do_bn=use_bn)
         
-        self.nn_edge_update = build_mlp([dim_node*2+dim_edge*2, dim_node+dim_edge*2, dim_edge],
+        self.nn_edge_update = build_mlp([dim_node*2+dim_edge, dim_node+dim_edge, dim_edge],
                                        do_bn=use_bn, on_last=False)
         
         self.edge_attention_mlp = build_mlp([dim_edge*2, dim_edge], do_bn=use_bn, on_last=False)
@@ -471,8 +471,8 @@ class BidirectionalEdgeLayer(MessagePassing):
         '''
         num_edge = x_i.size(0)
         
-        updated_edge = self.nn_edge_update(
-            torch.cat([x_i, edge_feature, reverse_edge_feature, x_j], dim=1)
+        updated_edge = edge_feature + self.nn_edge_update(
+            torch.cat([x_i, reverse_edge_feature, x_j], dim=1)
         )
         
         x_i_proj = self.proj_q(x_i).view(
