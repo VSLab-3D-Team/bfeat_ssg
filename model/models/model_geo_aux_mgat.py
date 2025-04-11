@@ -200,7 +200,7 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             )
         if self.m_config.gat_type == "text" and not self.m_config.use_distance_mask:
             obj_gnn_feats, edge_gnn_feats, kl_divs = self.gat(
-                obj_feats, edge_feats, edge_indices
+                obj_feats, edge_feats, edge_indices, gt_rel_label, gt_obj_label, descriptor
             )
         elif self.m_config.gat_type == "text" and self.m_config.use_distance_mask:
             obj_gnn_feats, edge_gnn_feats, kl_divs = self.gat(

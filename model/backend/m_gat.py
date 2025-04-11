@@ -750,24 +750,35 @@ class MSG_MMAN_BI(MessagePassing):
         node_class_indices = gt_obj_label
         edge_class_indices = gt_rel_label
         
-        if edge_class_indices.dim() > 1: # multi-label (one-hot vector processing)
-            edge_class_indices = edge_class_indices.argmax(dim=1)
-        
         row, col = edge_index
         
         src_indices = edge_index[0]
         dst_indices = edge_index[1]
         
         text_embeddings = []
-        for i in range(len(edge_class_indices)):
+        for i in range(edge_class_indices.size(0)): # only works with multi-label
             src_idx = src_indices[i]
             dst_idx = dst_indices[i]
-            
+
             src_class = self.node_class_names[node_class_indices[src_idx].item()]
             dst_class = self.node_class_names[node_class_indices[dst_idx].item()]
-            edge_class = self.edge_class_names[edge_class_indices[i].item()]
-            
-            text_embedding = self.clip_encoder.get_text_embedding(src_class, edge_class, dst_class)
+
+            edge_label = edge_class_indices[i]  # shape: [num_classes]
+            class_idxs = (edge_label == 1).nonzero(as_tuple=True)[0]
+
+            if len(class_idxs) == 0:
+                # no relation
+                edge_class = "no relation"
+                text_embedding = self.clip_encoder.get_text_embedding(src_class, edge_class, dst_class)
+            else:
+                # multiple relations → avg
+                embeddings = []
+                for cls_idx in class_idxs:
+                    edge_class = self.edge_class_names[cls_idx.item()]
+                    emb = self.clip_encoder.get_text_embedding(src_class, edge_class, dst_class)
+                    embeddings.append(emb)
+                text_embedding = torch.stack(embeddings).mean(dim=0)
+
             text_embeddings.append(text_embedding)
         
         text_embeddings = torch.stack(text_embeddings).to(x.device)
