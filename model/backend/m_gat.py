@@ -579,6 +579,19 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         self.use_node_attention = kwargs.get('use_node_attention', False)
         self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.0)
         self.use_geometric_enhancer = kwargs.get('use_geometric_enhancer', False)
+        self.use_lambda_control = kwargs.get('use_lambda_control', True)
+        
+        if self.use_lambda_control:
+            self.node_lambdas = torch.nn.ParameterList([
+                torch.nn.Parameter(torch.tensor(0.0))
+                for i in range(self.num_layers)
+            ])
+            
+            # Edge
+            # self.edge_lambdas = torch.nn.ParameterList([
+            #     torch.nn.Parameter(torch.tensor(0.0))
+            #     for i in range(self.num_layers)
+            # ])
 
         self.gconvs = torch.nn.ModuleList()
         self.drop_out = None
@@ -599,10 +612,7 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
 
     def forward(self, node_feature, edge_feature, edges_indices, descriptor=None):
         probs = list()
-        node_feature = node_feature
-        edge_feature = edge_feature
-        edges_indices = edges_indices
-        
+
         node_positions = None
         geo_features = None
 
@@ -635,11 +645,27 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
                 
                 node_feature, edge_feature = self.geo_enhancer(node_feature, edge_feature, geo_features)
         
+        initial_node_feature = node_feature.clone()
+        
         for i in range(self.num_layers):
             gconv = self.gconvs[i]
-            node_feature, edge_feature, prob = gconv(
+            
+            updated_node, updated_edge, prob = gconv(
                 node_feature, edge_feature, edges_indices, node_positions, p_mask=self.edge_mask_prob
             )
+            
+            if self.use_lambda_control:
+                node_lambda = torch.sigmoid(self.node_lambdas[i])
+                node_feature = node_lambda * node_feature + (1 - node_lambda) * updated_node
+                
+                edge_feature = updated_edge
+                
+                # Edge
+                # edge_lambda = torch.sigmoid(self.edge_lambdas[i])
+                # edge_feature = edge_lambda * edge_feature + (1 - edge_lambda) * updated_edge
+            else:
+                node_feature = updated_node
+                edge_feature = updated_edge
 
             if i < (self.num_layers-1) or self.num_layers == 1:
                 node_feature = torch.nn.functional.relu(node_feature)
@@ -655,78 +681,3 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
                 probs.append(None)
                 
         return node_feature, edge_feature, probs
-    
-# class BidirectionalEdgeGraphNetwork(torch.nn.Module):
-    
-#     def __init__(self, **kwargs):
-#         super().__init__()
-#         self.num_layers = kwargs['num_layers']
-#         self.use_distance_mask = kwargs.get('use_distance_mask', True)
-
-#         node_lambda_init_1 = kwargs.get('node_lambda_init_1', 0.1)
-#         node_lambda_init_2 = kwargs.get('node_lambda_init_2', 0.1)
-#         edge_lambda_init_1 = kwargs.get('edge_lambda_init_1', 1.0)
-#         edge_lambda_init_2 = kwargs.get('edge_lambda_init_2', 1.0)
-        
-#         self.node_lambda_1 = torch.nn.Parameter(torch.tensor(node_lambda_init_1))
-#         self.node_lambda_2 = torch.nn.Parameter(torch.tensor(node_lambda_init_2))
-#         self.edge_lambda_1 = torch.nn.Parameter(torch.tensor(edge_lambda_init_1))
-#         self.edge_lambda_2 = torch.nn.Parameter(torch.tensor(edge_lambda_init_2))
-
-#         self.gconvs = torch.nn.ModuleList()
-#         self.drop_out = None
-#         if 'DROP_OUT_ATTEN' in kwargs:
-#             self.drop_out = torch.nn.Dropout(kwargs['DROP_OUT_ATTEN'])
-
-#         for _ in range(self.num_layers):
-#             self.gconvs.append(filter_args_create(BidirectionalEdgeLayer, kwargs))
-
-#     def forward(self, node_feature, edge_feature, edges_indices, descriptor=None):
-#         probs = list()
-#         original_node_feature = node_feature 
-#         original_edge_feature = edge_feature
-        
-#         node_positions = None
-#         if self.use_distance_mask and descriptor is not None:
-#             node_positions = descriptor[:, :3]
-        
-#         gconv1 = self.gconvs[0]
-#         node_lambda_1 = torch.sigmoid(self.node_lambda_1)
-#         edge_lambda_1 = torch.sigmoid(self.edge_lambda_1)
-        
-#         updated_node, updated_edge, prob1 = gconv1(
-#             node_feature, edge_feature, edges_indices, node_positions
-#         )
-        
-#         node_feature = node_lambda_1 * original_node_feature + (1 - node_lambda_1) * updated_node
-#         edge_feature = edge_lambda_1 * original_edge_feature + (1 - edge_lambda_1) * updated_edge
-
-#         node_feature = torch.nn.functional.relu(node_feature)
-#         edge_feature = torch.nn.functional.relu(edge_feature)
-
-#         if self.drop_out:
-#             node_feature = self.drop_out(node_feature)
-#             edge_feature = self.drop_out(edge_feature)
-        
-#         if prob1 is not None:
-#             probs.append(prob1.cpu().detach())
-#         else:
-#             probs.append(None)
-            
-#         gconv2 = self.gconvs[1]
-#         node_lambda_2 = torch.sigmoid(self.node_lambda_2)
-#         edge_lambda_2 = torch.sigmoid(self.edge_lambda_2)
-        
-#         updated_node, updated_edge, prob2 = gconv2(
-#             node_feature, edge_feature, edges_indices, node_positions
-#         )
-        
-#         node_feature = node_lambda_2 * original_node_feature + (1 - node_lambda_2) * updated_node
-#         edge_feature = edge_lambda_2 * original_edge_feature + (1 - edge_lambda_2) * updated_edge
-        
-#         if prob2 is not None:
-#             probs.append(prob2.cpu().detach())
-#         else:
-#             probs.append(None)
-                
-#         return node_feature, edge_feature, probs
