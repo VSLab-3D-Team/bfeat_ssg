@@ -275,7 +275,7 @@ class BidirectionalEdgeLayer(MessagePassing):
                  attn_dropout: float = 0.3,
                  flow: str = 'target_to_source',
                  use_distance_mask: bool = True,
-                 use_node_attention: bool = False):
+                 use_node_attention: bool = True):
         super().__init__(aggr=aggr, flow=flow)
         assert dim_node % num_heads == 0
         assert dim_edge % num_heads == 0
@@ -300,9 +300,22 @@ class BidirectionalEdgeLayer(MessagePassing):
         
         if self.use_node_attention:
             self.node_distance_mlp = build_mlp([1, 32, 1], do_bn=False, on_last=False)
-            self.node_self_attn_q = build_mlp([dim_node, dim_node], do_bn=use_bn)
-            self.node_self_attn_k = build_mlp([dim_node, dim_node], do_bn=use_bn)
-            self.node_self_attn_v = build_mlp([dim_node, dim_node], do_bn=use_bn)
+            
+            self.mhsa_q = torch.nn.Linear(dim_node, dim_node)
+            self.mhsa_k = torch.nn.Linear(dim_node, dim_node)
+            self.mhsa_v = torch.nn.Linear(dim_node, dim_node)
+            
+            self.mhsa_out = torch.nn.Linear(dim_node, dim_node)
+            
+            self.layer_norm1 = torch.nn.LayerNorm(dim_node)
+            self.layer_norm2 = torch.nn.LayerNorm(dim_node)
+            
+            self.ffn = torch.nn.Sequential(
+                torch.nn.Linear(dim_node, dim_node * 4),
+                torch.nn.ReLU(),
+                torch.nn.Dropout(attn_dropout),
+                torch.nn.Linear(dim_node * 4, dim_node)
+            )
         
         self.nn_edge_update = build_mlp([dim_node*2+dim_edge*2, dim_node+dim_edge*2, dim_edge],
                                        do_bn=use_bn, on_last=False)
@@ -325,7 +338,6 @@ class BidirectionalEdgeLayer(MessagePassing):
         self.sigmoid = torch.nn.Sigmoid()
 
     def create_node_distance_mask(self, node_positions):
-
         if not self.use_node_attention:
             return None
             
@@ -343,28 +355,49 @@ class BidirectionalEdgeLayer(MessagePassing):
         attention_mask = self.sigmoid(output).view(num_nodes, num_nodes)
         return attention_mask
     
-    def apply_node_self_attention(self, x, distance_mask=None):
-
+    def apply_mhsa_with_distance_mask(self, x, distance_mask=None):
         if not self.use_node_attention:
             return x
             
-        num_nodes = x.size(0)
+        batch_size, seq_len = x.size(0), x.size(0)  # batch_size = 노드 수, seq_len = 노드 수
+        head_dim = self.dim_node // self.num_head
         
-        q = self.node_self_attn_q(x)  # [N, D]
-        k = self.node_self_attn_k(x)  # [N, D]
-        v = self.node_self_attn_v(x)  # [N, D]
+        residual = x
+        x = self.layer_norm1(x)
         
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.dim_node)  # [N, N]
+        q = self.mhsa_q(x).view(batch_size, self.num_head, head_dim)  # [N, H, D/H]
+        k = self.mhsa_k(x).view(batch_size, self.num_head, head_dim)  # [N, H, D/H]
+        v = self.mhsa_v(x).view(batch_size, self.num_head, head_dim)  # [N, H, D/H]
+        
+        q = q.permute(1, 0, 2)  # [H, N, D/H]
+        k = k.permute(1, 0, 2)  # [H, N, D/H]
+        v = v.permute(1, 0, 2)  # [H, N, D/H]
+        
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(head_dim)  # [H, N, N]
         
         if distance_mask is not None:
+            distance_mask = distance_mask.unsqueeze(0).expand(self.num_head, -1, -1)  # [H, N, N]
             attn_scores = attn_scores * distance_mask
         
-        attn_weights = F.softmax(attn_scores, dim=-1)  # [N, N]
+        attn_weights = F.softmax(attn_scores, dim=-1)  # [H, N, N]
         attn_weights = self.dropout(attn_weights)
         
-        output = torch.matmul(attn_weights, v)  # [N, D]
+        out = torch.matmul(attn_weights, v)  # [H, N, D/H]
         
-        return output
+        out = out.permute(1, 0, 2).contiguous().view(batch_size, -1)  # [N, D]
+        
+        out = self.mhsa_out(out)
+        out = self.dropout(out)
+        
+        out = out + residual
+        
+        residual = out
+        out = self.layer_norm2(out)
+        out = self.ffn(out)
+        out = self.dropout(out)
+        out = out + residual
+        
+        return out
 
     def forward(self, x, edge_feature, edge_index, node_positions=None, p_mask=0.0):
         row, col = edge_index
@@ -417,10 +450,9 @@ class BidirectionalEdgeLayer(MessagePassing):
             x_ori=x
         )
         
-        if self.use_node_attention and self.use_distance_mask and node_positions is not None:
+        if self.use_node_attention and node_positions is not None:
             node_distance_mask = self.create_node_distance_mask(node_positions)
-            node_self_attn_output = self.apply_node_self_attention(updated_node, node_distance_mask)
-            updated_node = updated_node + node_self_attn_output
+            updated_node = self.apply_mhsa_with_distance_mask(updated_node, node_distance_mask)
         
         twin_edge_attention = torch.zeros((x.size(0), self.dim_edge*2), device=x.device)
         
@@ -453,8 +485,8 @@ class BidirectionalEdgeLayer(MessagePassing):
         edge_attention = self.edge_attention_mlp(twin_edge_attention)
         edge_attention = self.sigmoid(edge_attention)
         
-        # node_feature_nonlinear = torch.nn.functional.relu(updated_node)  # f(v_i^l)
-        node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
+        node_feature_nonlinear = torch.nn.functional.relu(updated_node)  # f(v_i^l)
+        # node_feature_nonlinear = self.node_nonlinear_mlp(updated_node)
         final_node = node_feature_nonlinear * edge_attention  # ⊙ β(A_ε)
         
         return final_node, updated_edge, prob
@@ -576,7 +608,7 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         super().__init__()
         self.num_layers = kwargs['num_layers']
         self.use_distance_mask = kwargs.get('use_distance_mask', True)
-        self.use_node_attention = kwargs.get('use_node_attention', False)
+        self.use_node_attention = kwargs.get('use_node_attention', True)
         self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.0)
         self.use_geometric_enhancer = kwargs.get('use_geometric_enhancer', False)
         self.use_lambda_control = kwargs.get('use_lambda_control', False)
