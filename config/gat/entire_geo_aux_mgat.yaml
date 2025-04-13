@@ -57,6 +57,7 @@ model:
   edge_attention: false
   gat_type: "bidirectional" # gat type
   use_distance_mask: true
+  use_node_info_enhancement: true
 
 optimizer:
   learning_rate: 0.0001

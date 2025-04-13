@@ -37,12 +37,14 @@ class BFeatGeoAuxMGATNet(BaseNetwork):
             self.relation_encoder = RelFeatPointExtractor(
                 config, device
             )
-        elif self.m_config.relation_type == "resnet":
+        if self.m_config.relation_type == "resnet":
+            use_node_info = getattr(self.m_config, 'use_node_info_enhancement', True)
             self.relation_encoder = RelFeatNaiveExtractor(
                 self.m_config.dim_obj_feats,
                 self.m_config.dim_geo_feats,
                 self.m_config.dim_edge_feats,
-                num_layers=self.m_config.num_layers
+                num_layers=self.m_config.num_layers,
+                use_node_info_enhancement=use_node_info
             ).to(self.device)
         elif self.m_config.relation_type == "masking":
             self.relation_encoder = MaskingExtractor(
