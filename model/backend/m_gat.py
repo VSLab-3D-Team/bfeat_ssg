@@ -275,7 +275,7 @@ class BidirectionalEdgeLayer(MessagePassing):
                  attn_dropout: float = 0.3,
                  flow: str = 'target_to_source',
                  use_distance_mask: bool = True,
-                 use_node_attention: bool = True):
+                 use_node_attention: bool = False):
         super().__init__(aggr=aggr, flow=flow)
         assert dim_node % num_heads == 0
         assert dim_edge % num_heads == 0
@@ -608,7 +608,7 @@ class BidirectionalEdgeGraphNetwork(torch.nn.Module):
         super().__init__()
         self.num_layers = kwargs['num_layers']
         self.use_distance_mask = kwargs.get('use_distance_mask', True)
-        self.use_node_attention = kwargs.get('use_node_attention', True)
+        self.use_node_attention = kwargs.get('use_node_attention', False)
         self.edge_mask_prob = kwargs.get('edge_mask_prob', 0.0)
         self.use_geometric_enhancer = kwargs.get('use_geometric_enhancer', False)
         self.use_lambda_control = kwargs.get('use_lambda_control', False)
